@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Payments — Loan Counter{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <h1 class="page-title mb-0">Payment history</h1>
+  <a href="{{ url_for('payments_add') }}" class="btn btn-primary btn-sm">Record payment</a>
+</div>
+
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-8">
+    <input type="search" name="q" value="{{ q }}" class="form-control" placeholder="Search borrower name or phone">
+  </div>
+  <div class="col-md-4">
+    <button class="btn btn-outline-secondary w-100" type="submit">Search</button>
+  </div>
+</form>
+
+<div class="card-panel p-0 overflow-auto">
+  <table class="table table-hover mb-0 align-middle">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Borrower</th>
+        <th>Loan</th>
+        <th>Amount</th>
+        <th>Method</th>
+        <th>Notes</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in payments %}
+      <tr class="{% if p.is_reversal %}table-warning{% endif %}">
+        <td>{{ p.payment_date }}</td>
+        <td><a href="{{ url_for('borrowers_view', borrower_id=p.borrower_id) }}">{{ p.borrower.name }}</a></td>
+        <td><a href="{{ url_for('loans_view', loan_id=p.loan_id) }}">#{{ p.loan_id }}</a></td>
+        <td>
+          {{ p.amount_received|money }}
+          {% if p.is_reversal %}<span class="badge text-bg-warning">reversal</span>{% endif %}
+        </td>
+        <td>{{ p.payment_method }}</td>
+        <td>{{ p.notes or '—' }}</td>
+        <td><a href="{{ url_for('payments_view', payment_id=p.id) }}" class="btn btn-sm btn-outline-secondary">View</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="text-center text-muted py-4">No payments yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

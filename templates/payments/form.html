@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Record Payment — Loan Counter{% endblock %}
+{% block content %}
+<h1 class="page-title">Record payment</h1>
+<p class="text-muted small">Partial payments are allowed. Leave allocation fields at 0 to auto-apply interest first, then principal across outstanding collections.</p>
+
+<div class="card-panel col-lg-8 mt-2">
+  <form method="post">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">Borrower</label>
+        <select id="borrower_id" class="form-select">
+          <option value="">All borrowers</option>
+          {% for b in borrowers %}
+          <option value="{{ b.id }}" {% if pre_borrower == b.id %}selected{% endif %}>{{ b.name }} ({{ b.phone }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Loan *</label>
+        <select name="loan_id" id="loan_id" class="form-select" required>
+          <option value="">Select loan</option>
+          {% for loan in loans %}
+          <option value="{{ loan.id }}" data-borrower="{{ loan.borrower_id }}"
+            {% if pre_loan == loan.id %}selected{% endif %}>
+            #{{ loan.id }} — {{ loan.borrower.name }} ({{ loan.principal_amount }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Payment date *</label>
+        <input type="date" name="payment_date" class="form-control" value="{{ now }}" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Amount received *</label>
+        <input type="number" step="0.01" min="0.01" name="amount_received" class="form-control" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Payment method</label>
+        <select name="payment_method" class="form-select">
+          <option value="cash">Cash</option>
+          <option value="bank_transfer">Bank transfer</option>
+          <option value="upi">UPI</option>
+          <option value="cheque">Cheque</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Notes</label>
+        <textarea name="notes" class="form-control" rows="2"></textarea>
+      </div>
+    </div>
+
+    <hr>
+    <h2 class="h6">Optional allocation (leave 0 for automatic)</h2>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">To interest</label>
+        <input type="number" step="0.01" min="0" name="alloc_interest" class="form-control" value="0">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">To principal</label>
+        <input type="number" step="0.01" min="0" name="alloc_principal" class="form-control" value="0">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">To other charges</label>
+        <input type="number" step="0.01" min="0" name="alloc_other" class="form-control" value="0">
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-3">
+      <button type="submit" class="btn btn-primary">Save payment</button>
+      <a href="{{ url_for('payments_list') }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

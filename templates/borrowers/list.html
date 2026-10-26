@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Borrowers — Loan Counter{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <h1 class="page-title mb-0">Borrowers</h1>
+  <a href="{{ url_for('borrowers_add') }}" class="btn btn-primary btn-sm">Add borrower</a>
+</div>
+
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-8">
+    <input type="search" name="q" value="{{ q }}" class="form-control" placeholder="Search name, phone, address">
+  </div>
+  <div class="col-md-4">
+    <button class="btn btn-outline-secondary w-100" type="submit">Search</button>
+  </div>
+</form>
+
+<div class="card-panel p-0 overflow-auto">
+  <table class="table table-hover mb-0 align-middle">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Phone</th>
+        <th>Address</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in borrowers %}
+      <tr>
+        <td><a href="{{ url_for('borrowers_view', borrower_id=b.id) }}">{{ b.name }}</a></td>
+        <td>{{ b.phone or '—' }}</td>
+        <td>{{ b.address or '—' }}</td>
+        <td><span class="badge text-bg-{{ b.status|status_badge }}">{{ b.status }}</span></td>
+        <td class="text-end text-nowrap">
+          <a href="{{ url_for('borrowers_edit', borrower_id=b.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+          <a href="{{ url_for('loans_add', borrower_id=b.id) }}" class="btn btn-sm btn-primary">Create loan</a>
+          <form method="post" action="{{ url_for('borrowers_delete', borrower_id=b.id) }}" class="d-inline">
+            <button class="btn btn-sm btn-outline-danger" data-confirm="Delete this borrower and all their loans?">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-center text-muted py-4">No borrowers yet. <a href="{{ url_for('borrowers_add') }}">Add one</a>.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

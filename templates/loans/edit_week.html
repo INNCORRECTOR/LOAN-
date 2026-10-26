@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Edit week — Loan #{{ loan.id }}{% endblock %}
+{% block content %}
+<h1 class="page-title">Edit week — Loan #{{ loan.id }}</h1>
+<p class="text-muted">Change the pay date, interest, or fine as you wish. Paid weeks cannot be rewritten here.</p>
+
+<div class="card-panel col-lg-7">
+  <form method="post">
+    <div class="mb-3">
+      <label class="form-label">Pay date *</label>
+      <input type="date" name="due_date" class="form-control" required value="{{ sc.due_date }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Interest</label>
+      <input type="number" step="0.01" min="0" name="interest" class="form-control" value="{{ form_interest }}">
+    </div>
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <label class="form-label">Extra type</label>
+        <select name="extra_type" class="form-select">
+          <option value="none" {% if extra_type == 'none' %}selected{% endif %}>None</option>
+          <option value="interest" {% if extra_type == 'interest' %}selected{% endif %}>Extra interest</option>
+          <option value="fine" {% if extra_type == 'fine' %}selected{% endif %}>Fine</option>
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Extra amount</label>
+        <input type="number" step="0.01" min="0" name="extra_amount" class="form-control" value="{{ form_extra }}">
+      </div>
+    </div>
+    <div class="mb-3 small text-muted">
+      Currently paid: {{ sc.amount_paid|money }} · Status: {{ sc.status }}
+    </div>
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">Save week</button>
+      <a href="{{ url_for('loans_view', loan_id=loan.id) }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

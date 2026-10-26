@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Collections — Loan Counter{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+  <div>
+    <h1 class="page-title">{{ title }}</h1>
+  </div>
+  <div class="btn-group">
+    <a href="{{ url_for('collections_list', view='week') }}" class="btn btn-sm btn-outline-secondary {% if view == 'week' %}active{% endif %}">This week</a>
+    <a href="{{ url_for('collections_list', view='day', date=day) }}" class="btn btn-sm btn-outline-secondary {% if view == 'day' %}active{% endif %}">Daily</a>
+    <a href="{{ url_for('collections_list', view='overdue') }}" class="btn btn-sm btn-outline-secondary {% if view == 'overdue' %}active{% endif %}">Overdue</a>
+  </div>
+</div>
+
+{% if view == 'day' %}
+<form class="row g-2 mb-3" method="get">
+  <input type="hidden" name="view" value="day">
+  <div class="col-auto">
+    <input type="date" name="date" class="form-control" value="{{ day }}">
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-outline-secondary" type="submit">Go</button>
+  </div>
+</form>
+{% endif %}
+
+<form class="row g-2 mb-3" method="get">
+  <input type="hidden" name="view" value="{{ view }}">
+  {% if view == 'day' %}<input type="hidden" name="date" value="{{ day }}">{% endif %}
+  <div class="col-md-3">
+    <select name="status" class="form-select" onchange="this.form.submit()">
+      <option value="">All statuses</option>
+      {% for s in ['upcoming','due_today','paid','partially_paid','overdue','waived'] %}
+      <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</form>
+
+<div class="card-panel p-0 overflow-auto">
+  <table class="table table-hover mb-0 align-middle">
+    <thead>
+      <tr>
+        <th>Borrower</th>
+        <th>Phone</th>
+        <th>Loan</th>
+        <th>Due date</th>
+        <th>Amount due</th>
+        <th>Paid</th>
+        <th>Remaining</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in rows %}
+      <tr>
+        <td><a href="{{ url_for('borrowers_view', borrower_id=c.loan.borrower_id) }}">{{ c.loan.borrower.name }}</a></td>
+        <td>{{ c.loan.borrower.phone }}</td>
+        <td><a href="{{ url_for('loans_view', loan_id=c.loan_id) }}">#{{ c.loan_id }}</a></td>
+        <td>{{ c.due_date }}</td>
+        <td>{{ c.amount_due|money }}</td>
+        <td>{{ c.amount_paid|money }}</td>
+        <td>{{ c.remaining|money }}</td>
+        <td><span class="badge text-bg-{{ c.status|status_badge }}">{{ c.status }}</span></td>
+        <td class="text-end text-nowrap">
+          {% if c.status not in ['paid', 'waived'] %}
+          <form method="post" action="{{ url_for('collection_mark_paid', collection_id=c.id) }}" class="d-inline">
+            <button class="btn btn-sm btn-success" data-confirm="Mark this week as paid?">Mark paid</button>
+          </form>
+          <a href="{{ url_for('payments_add', loan_id=c.loan_id, borrower_id=c.loan.borrower_id, collection_id=c.id) }}" class="btn btn-sm btn-outline-primary">Pay</a>
+          {% endif %}
+          {% if c.status == 'paid' or c.amount_paid > 0 %}
+          <form method="post" action="{{ url_for('collection_mark_unpaid', collection_id=c.id) }}" class="d-inline">
+            <button class="btn btn-sm btn-outline-danger" data-confirm="Mark this week as not paid?">Not paid</button>
+          </form>
+          {% endif %}
+          <a href="{{ url_for('loans_view', loan_id=c.loan_id) }}" class="btn btn-sm btn-outline-secondary">View loan</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="text-center text-muted py-4">No collections in this view.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

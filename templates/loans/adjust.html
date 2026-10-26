@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Adjustment — Loan #{{ loan.id }}{% endblock %}
+{% block content %}
+<h1 class="page-title">Loan #{{ loan.id }} adjustment</h1>
+<p class="text-muted">Borrower: <a href="{{ url_for('borrowers_view', borrower_id=loan.borrower_id) }}">{{ loan.borrower.name }}</a></p>
+
+<div class="card-panel col-lg-7">
+  <form method="post">
+    <div class="mb-3">
+      <label class="form-label">Type</label>
+      <select name="adjustment_type" id="adjustment_type" class="form-select">
+        {% set types = [
+          ('extra_interest', 'Add extra interest'),
+          ('late_fee', 'Add late fee'),
+          ('waive_interest', 'Reduce / waive interest'),
+          ('credit', 'Credit adjustment'),
+          ('debit', 'Debit adjustment'),
+          ('future_interest_change', 'Edit future interest settings'),
+          ('note', 'Add note')
+        ] %}
+        {% for val, label in types %}
+        <option value="{{ val }}" {% if adj_type == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Date</label>
+      <input type="date" name="adjustment_date" class="form-control" value="{{ now }}">
+    </div>
+    <div class="mb-3" id="amount_group">
+      <label class="form-label">Amount</label>
+      <input type="number" step="0.01" min="0" name="amount" class="form-control" value="0">
+    </div>
+
+    <div id="future_settings" class="border rounded p-3 mb-3 d-none">
+      <div class="mb-2 fw-semibold">Future interest settings</div>
+      <div class="mb-2">
+        <label class="form-label">Interest method</label>
+        <select name="interest_method" class="form-select">
+          <option value="fixed_weekly" {% if loan.interest_method == 'fixed_weekly' %}selected{% endif %}>Fixed weekly</option>
+          <option value="percentage" {% if loan.interest_method == 'percentage' %}selected{% endif %}>Percentage</option>
+          <option value="monthly" {% if loan.interest_method == 'monthly' %}selected{% endif %}>Monthly fixed</option>
+          <option value="simple_on_outstanding" {% if loan.interest_method == 'simple_on_outstanding' %}selected{% endif %}>Simple on outstanding</option>
+        </select>
+      </div>
+      <div class="row g-2">
+        <div class="col-md-6">
+          <label class="form-label">Interest amount</label>
+          <input type="number" step="0.01" name="interest_amount" class="form-control" value="{{ loan.interest_amount }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Interest %</label>
+          <input type="number" step="0.0001" name="interest_percentage" class="form-control" value="{{ loan.interest_percentage }}">
+        </div>
+      </div>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Reason *</label>
+      <input type="text" name="reason" class="form-control" required maxlength="255">
+    </div>
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">Save adjustment</button>
+      <a href="{{ url_for('loans_view', loan_id=loan.id) }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var sel = document.getElementById("adjustment_type");
+  var amountGroup = document.getElementById("amount_group");
+  var future = document.getElementById("future_settings");
+  function sync() {
+    var v = sel.value;
+    future.classList.toggle("d-none", v !== "future_interest_change");
+    amountGroup.classList.toggle("d-none", v === "note" || v === "future_interest_change");
+  }
+  sel.addEventListener("change", sync);
+  sync();
+})();
+</script>
+{% endblock %}
