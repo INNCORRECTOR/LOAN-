@@ -233,6 +233,7 @@ class LoanAdjustment(db.Model):
     )
     adjustment_date = db.Column(db.Date, nullable=False, index=True)
     # extra_interest | late_fee | waive_interest | credit | debit | future_interest_change | note
+    # capital_topup | interest_topup
     adjustment_type = db.Column(db.String(40), nullable=False)
     amount = db.Column(db.Numeric(14, 2), nullable=False, default=Decimal("0.00"))
     reason = db.Column(db.String(255), nullable=False)
@@ -242,6 +243,23 @@ class LoanAdjustment(db.Model):
 
     def __repr__(self):
         return f"<LoanAdjustment {self.id} {self.adjustment_type}>"
+
+
+class BalanceEntry(db.Model):
+    """Simple cash calculator: + money in, - spending, with notes."""
+
+    __tablename__ = "balance_entries"
+
+    id = db.Column(db.Integer, primary_key=True)
+    entry_date = db.Column(db.Date, nullable=False, index=True, default=date.today)
+    # in | out
+    entry_type = db.Column(db.String(10), nullable=False, index=True)
+    amount = db.Column(db.Numeric(14, 2), nullable=False)
+    notes = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<BalanceEntry {self.id} {self.entry_type}={self.amount}>"
 
 
 # ---------------------------------------------------------------------------

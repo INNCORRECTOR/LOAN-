@@ -19,6 +19,7 @@ from models import (
     PaymentAllocation,
     LoanTransaction,
     LoanAdjustment,
+    BalanceEntry,
     db,
     loan_balances,
     week_bounds,
@@ -357,6 +358,143 @@ def dashboard():
         "week_end": week_end,
     }
     return render_template("dashboard.html", stats=stats)
+
+
+# ---------------------------------------------------------------------------
+# Balance (cash calculator)
+# ---------------------------------------------------------------------------
+
+@app.route("/balance")
+def balance_page():
+    # All money collected from borrowers (loan payments)
+    payments = (
+        Payment.query.order_by(Payment.payment_date.desc(), Payment.id.desc()).all()
+    )
+    collected = Decimal("0.00")
+    payment_rows = []
+    for p in payments:
+        amt = Decimal(p.amount_received or 0)
+        if p.is_reversal:
+            collected -= amt
+            sign = "+"
+            label = "reversal"
+        else:
+            collected += amt
+            sign = "+"
+            label = "collected"
+        name = p.borrower.name if p.borrower else f"Loan #{p.loan_id}"
+        payment_rows.append(
+            {
+                "date": p.payment_date,
+                "sign": "+" if not p.is_reversal else "−",
+                "amount": amt,
+                "notes": f"{label}: {name}" + (f" — {p.notes}" if p.notes else ""),
+                "source": "payment",
+                "id": p.id,
+            }
+        )
+    if collected < 0:
+        collected = Decimal("0.00")
+
+    entries = (
+        BalanceEntry.query.order_by(BalanceEntry.entry_date.desc(), BalanceEntry.id.desc()).all()
+    )
+    manual_in = Decimal("0.00")
+    manual_out = Decimal("0.00")
+    entry_rows = []
+    for e in entries:
+        amt = Decimal(e.amount or 0)
+        if e.entry_type == "in":
+            manual_in += amt
+            entry_rows.append(
+                {
+                    "date": e.entry_date,
+                    "sign": "+",
+                    "amount": amt,
+                    "notes": e.notes or "Money in",
+                    "source": "entry",
+                    "id": e.id,
+                    "entry_type": "in",
+                }
+            )
+        else:
+            manual_out += amt
+            entry_rows.append(
+                {
+                    "date": e.entry_date,
+                    "sign": "−",
+                    "amount": amt,
+                    "notes": e.notes or "Spending",
+                    "source": "entry",
+                    "id": e.id,
+                    "entry_type": "out",
+                }
+            )
+
+    # Combined calculator lines: manual entries + collections (newest first)
+    lines = entry_rows + [
+        {
+            "date": r["date"],
+            "sign": r["sign"],
+            "amount": r["amount"],
+            "notes": r["notes"],
+            "source": "payment",
+            "id": r["id"],
+        }
+        for r in payment_rows
+    ]
+    lines.sort(key=lambda x: (x["date"], x["id"]), reverse=True)
+
+    balance = collected + manual_in - manual_out
+
+    return render_template(
+        "balance.html",
+        collected=collected,
+        manual_in=manual_in,
+        manual_out=manual_out,
+        balance=balance,
+        lines=lines,
+        entries=entries,
+        payments=payments,
+    )
+
+
+@app.route("/balance/add", methods=["POST"])
+def balance_add():
+    entry_type = request.form.get("entry_type", "in")
+    if entry_type not in ("in", "out"):
+        entry_type = "in"
+    amount = money(request.form.get("amount"))
+    entry_date = parse_date(request.form.get("entry_date"), date.today())
+    notes = request.form.get("notes", "").strip() or None
+
+    if amount <= 0:
+        flash("Enter an amount greater than 0.", "danger")
+        return redirect(url_for("balance_page"))
+
+    db.session.add(
+        BalanceEntry(
+            entry_date=entry_date,
+            entry_type=entry_type,
+            amount=amount,
+            notes=notes,
+        )
+    )
+    db.session.commit()
+    if entry_type == "in":
+        flash(f"Added +{amount} to balance.", "success")
+    else:
+        flash(f"Added −{amount} spending.", "success")
+    return redirect(url_for("balance_page"))
+
+
+@app.route("/balance/<int:entry_id>/delete", methods=["POST"])
+def balance_delete(entry_id):
+    entry = BalanceEntry.query.get_or_404(entry_id)
+    db.session.delete(entry)
+    db.session.commit()
+    flash("Balance entry deleted.", "success")
+    return redirect(url_for("balance_page"))
 
 
 def _delete_loan_records(loan):

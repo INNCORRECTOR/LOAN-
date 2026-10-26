@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Balance — Loan Counter{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+  <div>
+    <h1 class="page-title">Balance</h1>
+    <p class="text-muted mb-0 small">Cash calculator — collected money, + in, − spending, with notes.</p>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="label">Collected (from loans)</div>
+      <div class="value text-success">+{{ collected|money }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="label">Extra money in (+)</div>
+      <div class="value text-success">+{{ manual_in|money }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card alert-soft">
+      <div class="label">Spending (−)</div>
+      <div class="value">−{{ manual_out|money }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="label">Balance now</div>
+      <div class="value">{{ balance|money }}</div>
+      <div class="small text-muted">collected + in − spending</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6">
+    <div class="card-panel border border-success h-100">
+      <h2 class="h5 mb-1">+ Add money</h2>
+      <p class="small text-muted mb-3">Extra cash coming in (not from a borrower payment).</p>
+      <form method="post" action="{{ url_for('balance_add') }}">
+        <input type="hidden" name="entry_type" value="in">
+        <div class="mb-2">
+          <label class="form-label">Amount *</label>
+          <div class="input-group">
+            <span class="input-group-text">+</span>
+            <input type="number" step="0.01" min="0.01" name="amount" class="form-control" required placeholder="500">
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Date</label>
+          <input type="date" name="entry_date" class="form-control" value="{{ now }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Notes</label>
+          <input type="text" name="notes" class="form-control" placeholder="Where from?">
+        </div>
+        <button type="submit" class="btn btn-success">+ Add</button>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card-panel border border-danger h-100">
+      <h2 class="h5 mb-1">− Spending</h2>
+      <p class="small text-muted mb-3">Money you spent — so you know what went out.</p>
+      <form method="post" action="{{ url_for('balance_add') }}">
+        <input type="hidden" name="entry_type" value="out">
+        <div class="mb-2">
+          <label class="form-label">Amount *</label>
+          <div class="input-group">
+            <span class="input-group-text">−</span>
+            <input type="number" step="0.01" min="0.01" name="amount" class="form-control" required placeholder="500">
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Date</label>
+          <input type="date" name="entry_date" class="form-control" value="{{ now }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Notes</label>
+          <input type="text" name="notes" class="form-control" placeholder="What for?">
+        </div>
+        <button type="submit" class="btn btn-outline-danger">− Spend</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="card-panel p-0 overflow-auto">
+  <div class="px-3 py-2 border-bottom fw-semibold">Calculator / notes</div>
+  <table class="table mb-0 align-middle">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>+ / −</th>
+        <th>Amount</th>
+        <th>Notes</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+      <tr class="{% if line.sign == '−' or line.sign == '-' %}table-danger{% else %}table-success{% endif %}">
+        <td>{{ line.date }}</td>
+        <td class="fw-bold">{{ line.sign }}</td>
+        <td class="fw-semibold">{{ line.amount|money }}</td>
+        <td>{{ line.notes }}</td>
+        <td class="text-end">
+          {% if line.source == 'entry' %}
+          <form method="post" action="{{ url_for('balance_delete', entry_id=line.id) }}" class="d-inline">
+            <button class="btn btn-sm btn-outline-danger" data-confirm="Delete this entry?">Delete</button>
+          </form>
+          {% else %}
+          <span class="small text-muted">from loan</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="5" class="text-center text-muted py-4">
+          No entries yet. Collect from loans, or add + / − above.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
