@@ -1,58 +1,67 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Loan Counter{% endblock %}</title>
+  <title>{% block title %}TIA LOAN COMPANY{% endblock %}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}?v=5" rel="stylesheet">
 </head>
-<body>
-  <div class="d-flex" id="wrapper">
-    <nav id="sidebar" class="sidebar border-end">
-      <div class="sidebar-header px-3 py-3">
-        <a href="{{ url_for('dashboard') }}" class="text-decoration-none text-dark fw-bold fs-5">Loan Counter</a>
+<body class="app-ready">
+  <div id="app-shell">
+    <header class="app-top">
+      <a class="brand" href="{{ url_for('dashboard') }}">
+        <img class="brand-logo" src="{{ url_for('static', filename='logo/image.png') }}" alt="TIA LOAN COMPANY">
+        <span class="brand-text">
+          <span class="brand-name">TIA LOAN COMPANY</span>
+          <span class="brand-sub">build by synergy</span>
+        </span>
+      </a>
+      <div class="top-meta d-flex align-items-center gap-2">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('backup_excel') }}" data-confirm="Do you want to download the Excel backup?" title="Download Excel backup">Backup</a>
+        <span class="d-none d-sm-inline">{{ now }}</span>
       </div>
-      <ul class="nav flex-column px-2">
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">Dashboard</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'loans_list' %}active{% endif %}" href="{{ url_for('loans_list') }}">Loans</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'loans_add' %}active{% endif %}" href="{{ url_for('loans_add') }}">Add borrower</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint and request.endpoint.startswith('balance') %}active{% endif %}" href="{{ url_for('balance_page') }}">Balance</a>
-        </li>
-      </ul>
-    </nav>
+    </header>
 
-    <div id="page-content" class="flex-grow-1">
-      <header class="topbar border-bottom px-3 py-2 d-flex align-items-center justify-content-between">
-        <button class="btn btn-outline-secondary btn-sm d-lg-none" type="button" id="sidebarToggle" aria-label="Toggle menu">Menu</button>
-        <div class="ms-auto small text-muted d-none d-md-block">{{ now }}</div>
-      </header>
-
-      <main class="container-fluid p-3 p-md-4">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-          {% if messages %}
-            {% for category, message in messages %}
-              <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                {{ message }}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-              </div>
-            {% endfor %}
-          {% endif %}
-        {% endwith %}
-        {% block content %}{% endblock %}
-      </main>
-    </div>
+    <main class="content-wrap">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
   </div>
 
+  <nav class="dock" aria-label="Main">
+    <a class="dock-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">
+      <svg viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5z"/></svg>
+      <span class="label">Home</span>
+    </a>
+    <a class="dock-link {% if request.endpoint and request.endpoint.startswith('loans') and request.endpoint != 'loans_add' %}active{% endif %}" href="{{ url_for('loans_list') }}">
+      <svg viewBox="0 0 24 24"><path d="M8 7h13M8 12h13M8 17h13M3 7h.01M3 12h.01M3 17h.01"/></svg>
+      <span class="label">Loans</span>
+    </a>
+    <a class="dock-add" href="{{ url_for('loans_add') }}" title="Add borrower" aria-label="Add borrower">
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+    </a>
+    <a class="dock-link {% if request.endpoint == 'collections_report' %}active{% endif %}" href="{{ url_for('collections_report') }}">
+      <svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 16V9M13 16V6M18 16v-4"/></svg>
+      <span class="label">Stats</span>
+    </a>
+    <a class="dock-link {% if request.endpoint and request.endpoint.startswith('balance') %}active{% endif %}" href="{{ url_for('balance_page') }}">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M9.5 10.5c.6-1 1.5-1.5 2.5-1.5s2 .6 2 1.8c0 2.2-4 1.4-4 3.7 0 1.1.9 1.8 2 1.8s1.8-.5 2.3-1.3"/></svg>
+      <span class="label">Balance</span>
+    </a>
+  </nav>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=5"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

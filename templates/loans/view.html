@@ -1,287 +1,293 @@
 {% extends "base.html" %}
-{% block title %}{{ loan.borrower.name }} — Loan Counter{% endblock %}
+{% block title %}{{ loan.borrower.name }} — TIA LOAN COMPANY{% endblock %}
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+<div class="page-head">
   <div>
     <h1 class="page-title">{{ loan.borrower.name }}</h1>
-    <div class="text-muted">
+    <p class="page-sub">
       {{ loan.borrower.phone or 'No phone' }}
+      · Loan taken {{ loan.loan_date }}
       · <span class="badge text-bg-{{ loan.status|status_badge }}">{{ loan.status }}</span>
-    </div>
+    </p>
+    {% if loan.notes %}
+    <p class="loan-notes">{{ loan.notes }}</p>
+    {% endif %}
   </div>
-  <div class="d-flex flex-wrap gap-2">
+  <div class="page-actions">
+    <a href="{{ url_for('loans_list') }}" class="btn btn-outline-secondary btn-sm">Back</a>
     <form method="post" action="{{ url_for('loans_delete', loan_id=loan.id) }}">
       <button class="btn btn-outline-danger btn-sm" data-confirm="Delete this person and loan permanently?">Delete</button>
     </form>
   </div>
 </div>
 
-<div class="row g-3 mb-3">
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="stat-card">
-      <div class="label">Weeks</div>
-      <div class="value">{{ summary.total_weeks }}</div>
-      <div class="small text-muted">{{ summary.paid_weeks }} paid · {{ summary.not_paid_weeks }} not paid{% if summary.maaf_weeks %} · {{ summary.maaf_weeks }} maaf{% endif %}</div>
-    </div>
+<div class="stat-grid cols-3">
+  <div class="stat-card">
+    <div class="label">Weeks</div>
+    <div class="value">{{ summary.total_weeks }}</div>
+    <div class="hint">{{ summary.paid_weeks }} paid · {{ summary.not_paid_weeks }} not paid{% if summary.maaf_weeks %} · {{ summary.maaf_weeks }} maaf{% endif %}</div>
   </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="stat-card">
-      <div class="label">Total interest</div>
-      <div class="value">{{ summary.total_interest|money }}</div>
-    </div>
+  <div class="stat-card">
+    <div class="label">Total interest</div>
+    <div class="value money">{{ summary.total_interest|money }}</div>
   </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="stat-card">
-      <div class="label">Principal</div>
-      <div class="value">{{ summary.principal|money }}</div>
-    </div>
+  <div class="stat-card">
+    <div class="label">Principal</div>
+    <div class="value money">{{ summary.principal|money }}</div>
   </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="stat-card">
-      <div class="label">Interest + principal</div>
-      <div class="value">{{ summary.interest_plus_principal|money }}</div>
-      <div class="small text-muted">weeks left {{ summary.remaining_to_pay|money }} + principal</div>
-    </div>
+  <div class="stat-card">
+    <div class="label">Interest + principal</div>
+    <div class="value money">{{ summary.interest_plus_principal|money }}</div>
+    <div class="hint">Weeks left {{ summary.remaining_to_pay|money }} + principal</div>
   </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="stat-card">
-      <div class="label">Total paid (−)</div>
-      <div class="value">{{ summary.payments_received|money }}</div>
-      <div class="small text-muted">on weeks: {{ summary.total_paid|money }}</div>
-    </div>
+  <div class="stat-card is-ok">
+    <div class="label">Total paid</div>
+    <div class="value money">{{ summary.payments_received|money }}</div>
   </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="stat-card alert-soft">
-      <div class="label">Still to pay (weeks)</div>
-      <div class="value">{{ summary.remaining_to_pay|money }}</div>
-    </div>
+  <div class="stat-card is-warn">
+    <div class="label">Still to pay</div>
+    <div class="value money">{{ summary.remaining_to_pay|money }}</div>
   </div>
 </div>
 
 {% if loan.status != 'closed' %}
-<div class="card-panel col-lg-11 mb-3 border border-success">
-  <h2 class="h5 mb-1">− Pay (reduce balance)</h2>
-  <p class="small text-muted mb-3">Enter money received. Example: still to pay 1500, pay 500 → left 1000. Applies to oldest unpaid weeks first.</p>
-  <form method="post" action="{{ url_for('loans_pay', loan_id=loan.id) }}" class="row g-2 align-items-end">
-    <div class="col-sm-6 col-md-3">
-      <label class="form-label">Amount to pay (−) *</label>
-      <div class="input-group">
-        <span class="input-group-text">−</span>
-        <input type="number" step="0.01" min="0.01" name="pay_amount" class="form-control form-control-lg" required placeholder="500">
+<div class="fold-panel block-pay" data-fold>
+  <button type="button" class="fold-trigger" aria-expanded="false">
+    <span class="fold-title">− Pay</span>
+    <span class="fold-hint">Tap to open</span>
+    <span class="fold-chevron" aria-hidden="true"></span>
+  </button>
+  <div class="fold-body" hidden>
+    <p class="section-help">Money received. Goes to oldest unpaid weeks first.</p>
+    <form method="post" action="{{ url_for('loans_pay', loan_id=loan.id) }}">
+      <div class="form-row cols-2">
+        <div>
+          <label class="form-label">Amount *</label>
+          <div class="input-group">
+            <span class="input-group-text">−</span>
+            <input type="number" step="0.01" min="0.01" name="pay_amount" class="form-control" required placeholder="500">
+          </div>
+        </div>
+        <div>
+          <label class="form-label">Date</label>
+          <input type="date" name="pay_date" class="form-control" value="{{ now }}">
+        </div>
+        <div>
+          <label class="form-label">Method</label>
+          <select name="pay_method" class="form-select">
+            <option value="cash">Cash</option>
+            <option value="upi">UPI</option>
+            <option value="bank_transfer">Bank</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Notes</label>
+          <input type="text" name="pay_notes" class="form-control" placeholder="Optional">
+        </div>
       </div>
-    </div>
-    <div class="col-sm-6 col-md-3">
-      <label class="form-label">Date</label>
-      <input type="date" name="pay_date" class="form-control form-control-lg" value="{{ now }}">
-    </div>
-    <div class="col-sm-6 col-md-2">
-      <label class="form-label">Method</label>
-      <select name="pay_method" class="form-select form-select-lg">
-        <option value="cash">Cash</option>
-        <option value="upi">UPI</option>
-        <option value="bank_transfer">Bank</option>
-        <option value="other">Other</option>
-      </select>
-    </div>
-    <div class="col-sm-6 col-md-2">
-      <label class="form-label">Notes</label>
-      <input type="text" name="pay_notes" class="form-control form-control-lg" placeholder="Optional">
-    </div>
-    <div class="col-sm-12 col-md-2">
-      <button type="submit" class="btn btn-success btn-lg w-100">− Pay</button>
-    </div>
-  </form>
+      <div class="action-row">
+        <button type="submit" class="btn btn-success">− Pay</button>
+      </div>
+    </form>
+  </div>
 </div>
-{% endif %}
 
-{% if loan.status != 'closed' %}
-<div class="card-panel col-lg-11 mb-3 border border-primary">
-  <h2 class="h5 mb-1">+ Add more capital / interest</h2>
-  <p class="small text-muted mb-3">
-    Same person takes more money. Example: was 2000 @ 500/week, add 1000 capital + 100 interest →
-    principal becomes 3000, <strong>new weeks</strong> use 600 interest. Old weeks stay at their old amounts.
-  </p>
-  <form method="post" action="{{ url_for('loans_topup', loan_id=loan.id) }}" class="row g-2 align-items-end">
-    <div class="col-sm-6 col-md-3">
-      <label class="form-label">+ More capital (principal)</label>
-      <div class="input-group">
-        <span class="input-group-text">+</span>
-        <input type="number" step="0.01" min="0" name="add_capital" class="form-control" value="0" placeholder="1000">
+<div class="fold-panel block-topup" data-fold>
+  <button type="button" class="fold-trigger" aria-expanded="false">
+    <span class="fold-title">+ Add capital / interest</span>
+    <span class="fold-hint">Tap to open</span>
+    <span class="fold-chevron" aria-hidden="true"></span>
+  </button>
+  <div class="fold-body" hidden>
+    <p class="section-help">Same person takes more. New weeks use combined interest; old weeks stay as they were.</p>
+    <form method="post" action="{{ url_for('loans_topup', loan_id=loan.id) }}">
+      <div class="form-row cols-2">
+        <div>
+          <label class="form-label">+ Capital</label>
+          <div class="input-group">
+            <span class="input-group-text">+</span>
+            <input type="number" step="0.01" min="0" name="add_capital" class="form-control" value="0" placeholder="1000">
+          </div>
+        </div>
+        <div>
+          <label class="form-label">+ Weekly interest</label>
+          <div class="input-group">
+            <span class="input-group-text">+</span>
+            <input type="number" step="0.01" min="0" name="add_interest" class="form-control" value="0" placeholder="100">
+          </div>
+          <div class="form-text">On top of {{ loan.interest_amount|money }}/week</div>
+        </div>
+        <div>
+          <label class="form-label">Date</label>
+          <input type="date" name="topup_date" class="form-control" value="{{ now }}">
+        </div>
+        <div>
+          <label class="form-label">Reason</label>
+          <input type="text" name="topup_reason" class="form-control" placeholder="Extra loan">
+        </div>
       </div>
-    </div>
-    <div class="col-sm-6 col-md-3">
-      <label class="form-label">+ More weekly interest</label>
-      <div class="input-group">
-        <span class="input-group-text">+</span>
-        <input type="number" step="0.01" min="0" name="add_interest" class="form-control" value="0" placeholder="100">
+      <div class="action-row">
+        <button type="submit" class="btn btn-primary">+ Add</button>
       </div>
-      <div class="form-text">Adds on top of current {{ loan.interest_amount|money }}/week</div>
-    </div>
-    <div class="col-sm-6 col-md-2">
-      <label class="form-label">Date</label>
-      <input type="date" name="topup_date" class="form-control" value="{{ now }}">
-    </div>
-    <div class="col-sm-6 col-md-2">
-      <label class="form-label">Reason</label>
-      <input type="text" name="topup_reason" class="form-control" placeholder="Extra loan">
-    </div>
-    <div class="col-sm-12 col-md-2">
-      <button type="submit" class="btn btn-primary w-100">+ Add</button>
-    </div>
-  </form>
-  {% if topups %}
-  <hr class="my-3">
-  <div class="small text-muted mb-1">Top-up history</div>
-  <ul class="mb-0 small">
-    {% for t in topups %}
-    <li>
-      {{ t.adjustment_date }} —
-      {% if t.adjustment_type == 'capital_topup' %}+{{ t.amount|money }} capital
-      {% else %}+{{ t.amount|money }} weekly interest{% endif %}
-      — {{ t.reason }}
-    </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-</div>
-{% endif %}
-
-<div class="card-panel col-lg-11 mb-3 p-0 overflow-auto">
-  <div class="px-3 py-2 border-bottom fw-semibold">Payments (− history)</div>
-  <table class="table mb-0 align-middle">
-    <thead>
-      <tr>
-        <th>Date</th>
-        <th>Amount</th>
-        <th>Method</th>
-        <th>Notes</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for p in payments %}
-      <tr class="{% if p.is_reversal %}table-warning{% endif %}">
-        <td>{{ p.payment_date }}</td>
-        <td class="fw-semibold">{% if p.is_reversal %}+{% else %}−{% endif %}{{ p.amount_received|money }}</td>
-        <td>{{ p.payment_method }}</td>
-        <td>{{ p.notes or '—' }}{% if p.is_reversal %} <span class="badge text-bg-warning">reversal</span>{% endif %}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4" class="text-center text-muted py-3">No payments yet. Use <strong>− Pay</strong> above.</td></tr>
+    </form>
+    {% if topups %}
+    <hr class="divider">
+    <div class="page-sub mb-1">Top-up history</div>
+    <ul class="mb-0 small text-muted">
+      {% for t in topups %}
+      <li>
+        {{ t.adjustment_date }} —
+        {% if t.adjustment_type == 'capital_topup' %}+{{ t.amount|money }} capital
+        {% else %}+{{ t.amount|money }} weekly interest{% endif %}
+        — {{ t.reason }}
+      </li>
       {% endfor %}
-    </tbody>
-  </table>
+    </ul>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card-panel tight">
+  <div class="panel-head">
+    <h2 class="section-title">Payments</h2>
+  </div>
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Amount</th>
+          <th>Method</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in payments %}
+        <tr>
+          <td>{{ p.payment_date }}</td>
+          <td class="money {% if p.is_reversal %}text-warning{% else %}text-success{% endif %}">
+            {% if p.is_reversal %}+{% else %}−{% endif %}{{ p.amount_received|money }}
+          </td>
+          <td>{{ p.payment_method }}</td>
+          <td>{{ p.notes or '—' }}{% if p.is_reversal %} <span class="badge text-bg-warning">reversal</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty-state">No payments yet. Use <strong>− Pay</strong> above.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 
-<div class="card-panel col-lg-11">
+<div class="card-panel">
   <form method="post" action="{{ url_for('loans_add_week', loan_id=loan.id) }}" id="addWeeksForm">
-    <div class="row g-3 mb-3">
-      <div class="col-md-3">
+    <h2 class="section-title">Borrower details</h2>
+    <div class="form-row cols-2 mt-3">
+      <div>
         <label class="form-label">Name</label>
         <input type="text" name="name" class="form-control" value="{{ loan.borrower.name }}" {% if loan.status == 'closed' %}disabled{% endif %}>
       </div>
-      <div class="col-md-3">
+      <div>
         <label class="form-label">Phone</label>
         <input type="text" name="phone" class="form-control" value="{{ loan.borrower.phone or '' }}" {% if loan.status == 'closed' %}disabled{% endif %}>
       </div>
-      <div class="col-md-3">
-        <label class="form-label">Principal (total)</label>
+      <div>
+        <label class="form-label">Principal</label>
         <input type="text" class="form-control" value="{{ loan.principal_amount }}" disabled>
-        <div class="form-text">Use + Add more capital above to increase</div>
       </div>
-      <div class="col-md-3">
-        <label class="form-label">Interest / week (for new weeks)</label>
+      <div>
+        <label class="form-label">Interest / week (new weeks)</label>
         <input type="number" step="0.01" min="0" name="interest_amount" id="interest_amount" class="form-control" value="{{ loan.interest_amount or 0 }}" {% if loan.status == 'closed' %}disabled{% endif %}>
-        <div class="form-text">New weeks auto-fill this. Old weeks keep their own interest.</div>
+      </div>
+      <div>
+        <label class="form-label">Loan taken date</label>
+        <input type="date" name="loan_date" class="form-control" value="{{ loan.loan_date }}" {% if loan.status == 'closed' %}disabled{% endif %}>
+      </div>
+      <div>
+        <label class="form-label">Notes</label>
+        <input type="text" name="notes" class="form-control" value="{{ loan.notes or '' }}" placeholder="Optional notes" {% if loan.status == 'closed' %}disabled{% endif %}>
       </div>
     </div>
 
-    <hr class="my-3">
+    <hr class="divider">
 
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
       <div>
-        <h2 class="h5 mb-0">Payment weeks</h2>
-        <p class="text-muted small mb-0">Edit fields, set status (Paid / Not paid / Maaf), then Save.</p>
+        <h2 class="section-title mb-0">Payment weeks</h2>
+        <p class="section-help mb-0">One card per week. Change date / amounts, then Save.</p>
       </div>
       {% if loan.status != 'closed' %}
-      <button type="button" class="btn btn-outline-primary btn-sm" id="addWeekBtn">+ Add week</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="addWeekBtn">+ Add week</button>
       {% endif %}
     </div>
 
-    <div class="table-responsive">
-      <table class="table align-middle" id="weeksTable">
-        <thead>
-          <tr>
-            <th style="width:3rem">#</th>
-            <th>Pay date</th>
-            <th>Interest</th>
-            <th>Extra type</th>
-            <th>Extra amount</th>
-            <th>Total due</th>
-            <th style="min-width:8rem">Status</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="weeksBody">
-          {% for w in week_forms %}
-          {% set c = w.sc %}
-          <tr class="week-existing {% if w.pay_status == 'paid' %}table-success{% elif w.pay_status == 'maaf' %}table-secondary{% elif c.status == 'overdue' %}table-danger{% endif %}" data-due-date="{{ c.due_date }}">
-            <td class="week-num">{{ loop.index }}</td>
-            {% if loan.status != 'closed' %}
-            <td>
-              <input type="hidden" name="edit_week_id" value="{{ c.id }}">
-              <input type="date" name="edit_week_date" class="form-control form-control-sm week-date" value="{{ c.due_date }}" required>
-            </td>
-            <td>
-              <input type="number" step="0.01" min="0" name="edit_week_interest" class="form-control form-control-sm week-interest" value="{{ w.interest }}">
-            </td>
-            <td>
-              <select name="edit_week_extra_type" class="form-select form-select-sm week-extra-type">
-                <option value="none" {% if w.extra_type == 'none' %}selected{% endif %}>None</option>
-                <option value="interest" {% if w.extra_type == 'interest' %}selected{% endif %}>Extra interest</option>
-                <option value="fine" {% if w.extra_type == 'fine' %}selected{% endif %}>Fine</option>
-              </select>
-            </td>
-            <td>
-              <input type="number" step="0.01" min="0" name="edit_week_extra_amount" class="form-control form-control-sm week-extra" value="{{ w.extra }}">
-            </td>
-            <td class="week-total fw-semibold">{{ c.amount_due|money }}</td>
-            <td>
-              <select name="edit_week_status" class="form-select form-select-sm">
-                <option value="not_paid" {% if w.pay_status == 'not_paid' %}selected{% endif %}>Not paid</option>
-                <option value="paid" {% if w.pay_status == 'paid' %}selected{% endif %}>Paid</option>
-                <option value="maaf" {% if w.pay_status == 'maaf' %}selected{% endif %}>Maaf</option>
-              </select>
-            </td>
-            <td class="text-end">
-              <button type="submit" class="btn btn-sm btn-outline-danger" formnovalidate
-                      formaction="{{ url_for('collection_delete', collection_id=c.id) }}"
-                      formmethod="post"
-                      data-confirm="Delete this week?">Delete</button>
-            </td>
-            {% else %}
-            <td>{{ c.due_date }}</td>
-            <td>{{ w.interest|money }}</td>
-            <td>{{ w.extra_type }}</td>
-            <td>{{ w.extra|money }}</td>
-            <td class="fw-semibold">{{ c.amount_due|money }}</td>
-            <td>
-              {% if w.pay_status == 'paid' %}Paid
-              {% elif w.pay_status == 'maaf' %}Maaf
-              {% else %}Not paid{% endif %}
-            </td>
-            <td></td>
-            {% endif %}
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="weeks-list" id="weeksBody">
+      {% for w in week_forms %}
+      {% set c = w.sc %}
+      <div class="week-card week-existing {% if w.pay_status == 'paid' %}is-paid{% elif w.pay_status == 'maaf' %}is-maaf{% elif c.status == 'overdue' %}is-overdue{% endif %}" data-due-date="{{ c.due_date }}">
+        <div class="week-card-head">
+          <span class="week-badge">Week <span class="week-num">{{ loop.index }}</span></span>
+          <div class="week-total-wrap">Total <strong class="week-total">{{ c.amount_due|money }}</strong></div>
+          {% if loan.status != 'closed' %}
+          <button type="submit" class="btn btn-sm btn-outline-danger" formnovalidate
+                  formaction="{{ url_for('collection_delete', collection_id=c.id) }}"
+                  formmethod="post"
+                  data-confirm="Delete this week?">Delete</button>
+          {% endif %}
+        </div>
+        {% if loan.status != 'closed' %}
+        <input type="hidden" name="edit_week_id" value="{{ c.id }}">
+        <div class="week-fields">
+          <div class="week-field week-field-date">
+            <label class="form-label">Pay date</label>
+            <input type="date" name="edit_week_date" class="form-control form-control-sm week-date" value="{{ c.due_date }}" required>
+          </div>
+          <div class="week-field">
+            <label class="form-label">Interest</label>
+            <input type="number" step="0.01" min="0" name="edit_week_interest" class="form-control form-control-sm week-interest" value="{{ w.interest }}">
+          </div>
+          <div class="week-field">
+            <label class="form-label">Extra</label>
+            <select name="edit_week_extra_type" class="form-select form-select-sm week-extra-type">
+              <option value="none" {% if w.extra_type == 'none' %}selected{% endif %}>None</option>
+              <option value="interest" {% if w.extra_type == 'interest' %}selected{% endif %}>Interest</option>
+              <option value="fine" {% if w.extra_type == 'fine' %}selected{% endif %}>Fine</option>
+            </select>
+          </div>
+          <div class="week-field">
+            <label class="form-label">Extra amt</label>
+            <input type="number" step="0.01" min="0" name="edit_week_extra_amount" class="form-control form-control-sm week-extra" value="{{ w.extra }}">
+          </div>
+          <div class="week-field">
+            <label class="form-label">Status</label>
+            <select name="edit_week_status" class="form-select form-select-sm">
+              <option value="not_paid" {% if w.pay_status == 'not_paid' %}selected{% endif %}>Not paid</option>
+              <option value="paid" {% if w.pay_status == 'paid' %}selected{% endif %}>Paid</option>
+              <option value="maaf" {% if w.pay_status == 'maaf' %}selected{% endif %}>Maaf</option>
+            </select>
+          </div>
+        </div>
+        {% else %}
+        <div class="week-fields week-readonly">
+          <div class="week-field"><span class="form-label">Pay date</span><div>{{ c.due_date }}</div></div>
+          <div class="week-field"><span class="form-label">Interest</span><div class="money">{{ w.interest|money }}</div></div>
+          <div class="week-field"><span class="form-label">Extra</span><div>{{ w.extra_type }} {{ w.extra|money }}</div></div>
+          <div class="week-field"><span class="form-label">Status</span>
+            <div>{% if w.pay_status == 'paid' %}Paid{% elif w.pay_status == 'maaf' %}Maaf{% else %}Not paid{% endif %}</div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
     </div>
-    <p class="small text-muted" id="weeksEmptyHint" {% if schedule %}style="display:none"{% endif %}>
-      No weeks yet. Click <strong>Add week</strong>.
+    <p class="page-sub mt-2" id="weeksEmptyHint" {% if schedule %}style="display:none"{% endif %}>
+      No weeks yet. Tap <strong>+ Add week</strong>.
     </p>
 
     {% if loan.status != 'closed' %}
-    <div class="d-flex flex-wrap gap-2 mt-3">
+    <div class="action-row">
       <button type="submit" class="btn btn-primary" name="action" value="save">Save</button>
     </div>
     {% endif %}
@@ -302,26 +308,6 @@
     startIndex: {{ schedule|length }},
     defaultDate: lastDate ? LoanWeeks.addDaysISO(lastDate, 7) : LoanWeeks.todayISO(),
     withStatus: true
-  });
-
-  document.querySelectorAll("#weeksBody tr.week-existing").forEach(function (row) {
-    function recalc() {
-      var interest = parseFloat((row.querySelector(".week-interest") || {}).value) || 0;
-      var extra = parseFloat((row.querySelector(".week-extra") || {}).value) || 0;
-      var totalEl = row.querySelector(".week-total");
-      if (totalEl) totalEl.textContent = (interest + extra).toFixed(2);
-    }
-    row.querySelectorAll(".week-interest, .week-extra, .week-extra-type").forEach(function (el) {
-      el.addEventListener("input", recalc);
-      el.addEventListener("change", function () {
-        if (el.classList.contains("week-extra-type") && el.value === "none") {
-          var extra = row.querySelector(".week-extra");
-          if (extra) extra.value = "0";
-        }
-        recalc();
-      });
-    });
-    recalc();
   });
 })();
 </script>

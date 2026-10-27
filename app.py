@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from calendar import monthrange
+from io import BytesIO
 
 from flask import (
     Flask,
@@ -8,6 +9,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_file,
     url_for,
 )
 from config import Config
@@ -347,6 +349,10 @@ def dashboard():
     ).all()
     total_overdue = sum((c.remaining for c in overdue_rows), Decimal("0.00"))
 
+    collected_pct = 0
+    if expected_week > 0:
+        collected_pct = int(min((actual_week / expected_week) * 100, Decimal("100")))
+
     stats = {
         "active_loans": active_loans,
         "total_capital": total_capital,
@@ -356,8 +362,425 @@ def dashboard():
         "total_overdue": total_overdue,
         "week_start": week_start,
         "week_end": week_end,
+        "collected_pct": collected_pct,
     }
     return render_template("dashboard.html", stats=stats)
+
+
+@app.route("/backup.xlsx")
+def backup_excel():
+    """One-click Excel backup of all app data (multi-sheet)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    def _cell(value):
+        if value is None:
+            return ""
+        if isinstance(value, Decimal):
+            return float(value)
+        if isinstance(value, datetime):
+            return value.strftime("%Y-%m-%d %H:%M:%S")
+        if isinstance(value, date):
+            return value.isoformat()
+        return value
+
+    def write_sheet(wb, title, headers, rows):
+        ws = wb.create_sheet(title)
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        for row in rows:
+            ws.append([_cell(v) for v in row])
+        for col in ws.columns:
+            letter = col[0].column_letter
+            width = max((len(str(c.value)) if c.value is not None else 0) for c in col[:200])
+            ws.column_dimensions[letter].width = min(max(width + 2, 10), 42)
+
+    wb = Workbook()
+    # remove default empty sheet
+    default = wb.active
+    wb.remove(default)
+
+    # Borrowers
+    borrowers = Borrower.query.order_by(Borrower.id.asc()).all()
+    write_sheet(
+        wb,
+        "Borrowers",
+        ["id", "name", "phone", "address", "notes", "date_added", "status"],
+        [
+            [b.id, b.name, b.phone, b.address, b.notes, b.date_added, b.status]
+            for b in borrowers
+        ],
+    )
+
+    # Loans (+ borrower name for readability)
+    loans = Loan.query.order_by(Loan.id.asc()).all()
+    write_sheet(
+        wb,
+        "Loans",
+        [
+            "id",
+            "borrower_id",
+            "borrower_name",
+            "principal_amount",
+            "loan_date",
+            "interest_amount",
+            "interest_method",
+            "interest_percentage",
+            "collection_frequency",
+            "first_collection_date",
+            "end_date",
+            "status",
+            "notes",
+            "created_at",
+            "updated_at",
+        ],
+        [
+            [
+                loan.id,
+                loan.borrower_id,
+                loan.borrower.name if loan.borrower else "",
+                loan.principal_amount,
+                loan.loan_date,
+                loan.interest_amount,
+                loan.interest_method,
+                loan.interest_percentage,
+                loan.collection_frequency,
+                loan.first_collection_date,
+                loan.end_date,
+                loan.status,
+                loan.notes,
+                loan.created_at,
+                loan.updated_at,
+            ]
+            for loan in loans
+        ],
+    )
+
+    # Payment weeks
+    weeks = ScheduledCollection.query.order_by(
+        ScheduledCollection.loan_id.asc(), ScheduledCollection.due_date.asc()
+    ).all()
+    write_sheet(
+        wb,
+        "Payment_Weeks",
+        [
+            "id",
+            "loan_id",
+            "borrower_name",
+            "due_date",
+            "amount_due",
+            "amount_paid",
+            "interest_portion",
+            "principal_portion",
+            "status",
+            "notes",
+            "created_at",
+        ],
+        [
+            [
+                w.id,
+                w.loan_id,
+                w.loan.borrower.name if w.loan and w.loan.borrower else "",
+                w.due_date,
+                w.amount_due,
+                w.amount_paid,
+                w.interest_portion,
+                w.principal_portion,
+                w.status,
+                w.notes,
+                w.created_at,
+            ]
+            for w in weeks
+        ],
+    )
+
+    # Payments
+    payments = Payment.query.order_by(Payment.payment_date.asc(), Payment.id.asc()).all()
+    write_sheet(
+        wb,
+        "Payments",
+        [
+            "id",
+            "borrower_id",
+            "borrower_name",
+            "loan_id",
+            "payment_date",
+            "amount_received",
+            "payment_method",
+            "notes",
+            "is_reversal",
+            "reverses_payment_id",
+            "created_at",
+        ],
+        [
+            [
+                p.id,
+                p.borrower_id,
+                p.borrower.name if p.borrower else "",
+                p.loan_id,
+                p.payment_date,
+                p.amount_received,
+                p.payment_method,
+                p.notes,
+                p.is_reversal,
+                p.reverses_payment_id,
+                p.created_at,
+            ]
+            for p in payments
+        ],
+    )
+
+    # Payment allocations
+    allocs = PaymentAllocation.query.order_by(PaymentAllocation.id.asc()).all()
+    write_sheet(
+        wb,
+        "Payment_Allocations",
+        [
+            "id",
+            "payment_id",
+            "allocation_type",
+            "amount",
+            "scheduled_collection_id",
+        ],
+        [
+            [
+                a.id,
+                a.payment_id,
+                a.allocation_type,
+                a.amount,
+                a.scheduled_collection_id,
+            ]
+            for a in allocs
+        ],
+    )
+
+    # Adjustments / top-ups
+    adjs = LoanAdjustment.query.order_by(
+        LoanAdjustment.adjustment_date.asc(), LoanAdjustment.id.asc()
+    ).all()
+    write_sheet(
+        wb,
+        "Adjustments",
+        [
+            "id",
+            "loan_id",
+            "borrower_name",
+            "adjustment_date",
+            "adjustment_type",
+            "amount",
+            "reason",
+            "created_at",
+        ],
+        [
+            [
+                a.id,
+                a.loan_id,
+                a.loan.borrower.name if a.loan and a.loan.borrower else "",
+                a.adjustment_date,
+                a.adjustment_type,
+                a.amount,
+                a.reason,
+                a.created_at,
+            ]
+            for a in adjs
+        ],
+    )
+
+    # Ledger transactions
+    txns = LoanTransaction.query.order_by(
+        LoanTransaction.transaction_date.asc(), LoanTransaction.id.asc()
+    ).all()
+    write_sheet(
+        wb,
+        "Ledger",
+        [
+            "id",
+            "loan_id",
+            "borrower_name",
+            "transaction_date",
+            "transaction_type",
+            "amount",
+            "description",
+            "reference_type",
+            "reference_id",
+            "created_at",
+        ],
+        [
+            [
+                t.id,
+                t.loan_id,
+                t.loan.borrower.name if t.loan and t.loan.borrower else "",
+                t.transaction_date,
+                t.transaction_type,
+                t.amount,
+                t.description,
+                t.reference_type,
+                t.reference_id,
+                t.created_at,
+            ]
+            for t in txns
+        ],
+    )
+
+    # Balance cash entries
+    bals = BalanceEntry.query.order_by(
+        BalanceEntry.entry_date.asc(), BalanceEntry.id.asc()
+    ).all()
+    write_sheet(
+        wb,
+        "Balance_Cash",
+        ["id", "entry_date", "entry_type", "amount", "notes", "created_at"],
+        [
+            [e.id, e.entry_date, e.entry_type, e.amount, e.notes, e.created_at]
+            for e in bals
+        ],
+    )
+
+    # Summary snapshot
+    summary_rows = []
+    for loan in loans:
+        bal = loan_balances(loan)
+        summary_rows.append(
+            [
+                loan.id,
+                loan.borrower.name if loan.borrower else "",
+                loan.status,
+                bal["original_principal"],
+                bal["remaining_principal"],
+                bal["outstanding_interest"],
+                bal["total_payments"],
+                bal["total_outstanding"],
+                bal["next_due_date"],
+                bal["next_due_amount"],
+            ]
+        )
+    write_sheet(
+        wb,
+        "Loan_Summary",
+        [
+            "loan_id",
+            "borrower_name",
+            "status",
+            "principal",
+            "remaining_principal",
+            "outstanding_interest",
+            "total_payments",
+            "total_outstanding",
+            "next_due_date",
+            "next_due_amount",
+        ],
+        summary_rows,
+    )
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"TIA_LOAN_backup_{date.today().isoformat()}.xlsx"
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/stats")
+def collections_report():
+    """Date-range collection stats. Defaults to this week."""
+    refresh_collection_statuses()
+    week_start, week_end = week_bounds()
+
+    date_from = parse_date(request.args.get("from"), week_start)
+    date_to = parse_date(request.args.get("to"), week_end)
+    if date_from and date_to and date_from > date_to:
+        date_from, date_to = date_to, date_from
+
+    # Scheduled weeks due in range
+    due_rows = (
+        ScheduledCollection.query.filter(
+            ScheduledCollection.due_date >= date_from,
+            ScheduledCollection.due_date <= date_to,
+            ScheduledCollection.status != "waived",
+        )
+        .order_by(ScheduledCollection.due_date.asc(), ScheduledCollection.id.asc())
+        .all()
+    )
+    expected = sum((Decimal(c.amount_due or 0) for c in due_rows), Decimal("0.00"))
+    paid_on_due = sum((Decimal(c.amount_paid or 0) for c in due_rows), Decimal("0.00"))
+    still_due = sum((c.remaining for c in due_rows), Decimal("0.00"))
+
+    # Cash actually received in the date range (payment_date)
+    payments = (
+        Payment.query.filter(
+            Payment.payment_date >= date_from,
+            Payment.payment_date <= date_to,
+        )
+        .order_by(Payment.payment_date.desc(), Payment.id.desc())
+        .all()
+    )
+    collected = Decimal("0.00")
+    collected_in = Decimal("0.00")
+    collected_out = Decimal("0.00")
+    payment_rows = []
+    for p in payments:
+        amt = Decimal(p.amount_received or 0)
+        if p.is_reversal or amt < 0:
+            collected -= abs(amt)
+            collected_out += abs(amt)
+            kind = "reversal" if p.is_reversal else "out"
+        else:
+            collected += amt
+            collected_in += amt
+            kind = "in"
+        payment_rows.append({"payment": p, "kind": kind, "amount": abs(amt)})
+
+    if collected < 0:
+        collected = Decimal("0.00")
+
+    overdue_rows = ScheduledCollection.query.filter(
+        ScheduledCollection.status == "overdue"
+    ).all()
+    total_overdue = sum((c.remaining for c in overdue_rows), Decimal("0.00"))
+
+    # Group due weeks by date for a compact day summary
+    by_day = {}
+    for c in due_rows:
+        d = c.due_date
+        if d not in by_day:
+            by_day[d] = {
+                "due_date": d,
+                "expected": Decimal("0.00"),
+                "paid": Decimal("0.00"),
+                "count": 0,
+            }
+        by_day[d]["expected"] += Decimal(c.amount_due or 0)
+        by_day[d]["paid"] += Decimal(c.amount_paid or 0)
+        by_day[d]["count"] += 1
+    day_summary = sorted(by_day.values(), key=lambda x: x["due_date"], reverse=True)
+
+    stats = {
+        "date_from": date_from,
+        "date_to": date_to,
+        "week_start": week_start,
+        "week_end": week_end,
+        "expected": expected,
+        "paid_on_due": paid_on_due,
+        "still_due": still_due,
+        "collected": collected,
+        "collected_in": collected_in,
+        "collected_out": collected_out,
+        "total_overdue": total_overdue,
+        "payment_count": len(payment_rows),
+        "week_count": len(due_rows),
+    }
+    return render_template(
+        "collections.html",
+        stats=stats,
+        due_rows=due_rows,
+        payment_rows=payment_rows,
+        day_summary=day_summary,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -547,6 +970,9 @@ def borrowers_view(borrower_id):
 def loans_list():
     q = request.args.get("q", "").strip()
     status = request.args.get("status", "all")
+    view = request.args.get("view", "cards")
+    if view not in ("list", "cards"):
+        view = "cards"
     query = Loan.query.join(Borrower)
     if q:
         like = f"%{q}%"
@@ -554,7 +980,26 @@ def loans_list():
     if status in ("active", "paused", "closed"):
         query = query.filter(Loan.status == status)
     loans = query.order_by(Loan.loan_date.desc(), Loan.id.desc()).all()
-    return render_template("loans/list.html", loans=loans, q=q, status=status)
+    card_rows = []
+    for loan in loans:
+        bal = loan_balances(loan)
+        card_rows.append(
+            {
+                "loan": loan,
+                "paid": bal["total_payments"],
+                "outstanding": bal["total_outstanding"],
+                "next_due": bal["next_due_date"],
+                "next_amt": bal["next_due_amount"],
+            }
+        )
+    return render_template(
+        "loans/list.html",
+        loans=loans,
+        card_rows=card_rows,
+        q=q,
+        status=status,
+        view=view,
+    )
 
 
 def _parse_week_rows():
@@ -625,15 +1070,14 @@ def _week_ui_status(sc):
 
 
 def _update_week_collection(sc, due, interest, extra_type, extra_amt):
-    """Apply inline edits to an unpaid week and sync ledger."""
-    if Decimal(sc.amount_paid or 0) > 0:
-        return False
-    if sc.status == "waived":
-        # Still allow amount/date edits while maaf
-        pass
+    """
+    Apply inline edits to a week.
+    Pay date always updates (unless another week on this loan already uses that date).
+    Interest/extra amounts only change when the week has no money paid yet (or is maaf).
+    Returns: "ok" | "date_only" | "clash" | False
+    """
     if extra_type == "none":
         extra_amt = Decimal("0.00")
-    new_due_amount = interest + extra_amt
 
     clash = ScheduledCollection.query.filter(
         ScheduledCollection.loan_id == sc.loan_id,
@@ -641,8 +1085,19 @@ def _update_week_collection(sc, due, interest, extra_type, extra_amt):
         ScheduledCollection.id != sc.id,
     ).first()
     if clash:
-        return False
+        return "clash"
 
+    # Date can always change
+    sc.due_date = due
+
+    has_payments = Decimal(sc.amount_paid or 0) > 0 and sc.status != "waived"
+    if has_payments:
+        # Keep amounts as-is for paid / partially paid weeks; only date moved
+        if sc.status != "waived":
+            sc.refresh_status()
+        return "date_only"
+
+    new_due_amount = interest + extra_amt
     old_interest = Decimal(sc.interest_portion or 0)
     old_amount = Decimal(sc.amount_due or 0)
 
@@ -650,7 +1105,6 @@ def _update_week_collection(sc, due, interest, extra_type, extra_amt):
     if extra_type == "interest":
         interest_portion += extra_amt
 
-    sc.due_date = due
     sc.amount_due = new_due_amount
     sc.interest_portion = interest_portion
     sc.notes = (
@@ -702,7 +1156,7 @@ def _update_week_collection(sc, due, interest, extra_type, extra_amt):
                 ref_type="scheduled_collection",
                 ref_id=sc.id,
             )
-    return True
+    return "ok"
 
 
 def _set_week_paid(sc, loan):
@@ -1277,7 +1731,7 @@ def loans_add_week(loan_id):
     if request.method == "GET":
         return redirect(url_for("loans_view", loan_id=loan.id))
 
-    # Update person + interest on save
+    # Update person + interest + loan meta on save
     name = request.form.get("name", "").strip()
     if name:
         loan.borrower.name = name
@@ -1287,6 +1741,10 @@ def loans_add_week(loan_id):
         loan.interest_amount = money(
             request.form.get("interest_amount"), str(loan.interest_amount or 0)
         )
+    if "loan_date" in request.form:
+        loan.loan_date = parse_date(request.form.get("loan_date"), loan.loan_date)
+    if "notes" in request.form:
+        loan.notes = request.form.get("notes", "").strip() or None
 
     # Save inline edits + status (paid / not paid / maaf)
     edit_ids = request.form.getlist("edit_week_id")
@@ -1296,6 +1754,7 @@ def loans_add_week(loan_id):
     edit_extra_amounts = request.form.getlist("edit_week_extra_amount")
     edit_statuses = request.form.getlist("edit_week_status")
     updated = 0
+    date_clashes = 0
     for i, raw_id in enumerate(edit_ids):
         try:
             cid = int(raw_id)
@@ -1320,19 +1779,22 @@ def loans_add_week(loan_id):
             _set_week_unpaid(sc, loan)
             current = "not_paid"
 
-        if desired != "paid":
-            _update_week_collection(sc, due, interest, extra_type, extra_amt)
+        # Always apply date (and amounts when unpaid) — including paid weeks staying paid
+        result = _update_week_collection(sc, due, interest, extra_type, extra_amt)
+        if result == "clash":
+            date_clashes += 1
+            continue
 
         if desired == "paid" and current != "paid":
             if current == "maaf":
                 sc.status = "upcoming"
                 sc.amount_paid = Decimal("0.00")
-            _update_week_collection(sc, due, interest, extra_type, extra_amt)
             _set_week_paid(sc, loan)
         elif desired == "maaf" and current != "maaf":
             if Decimal(sc.amount_paid or 0) > 0:
                 _set_week_unpaid(sc, loan)
-            _update_week_collection(sc, due, interest, extra_type, extra_amt)
+                # re-apply amounts after clearing payments
+                _update_week_collection(sc, due, interest, extra_type, extra_amt)
             _set_week_maaf(sc)
         elif desired == "not_paid" and current == "maaf":
             sc.status = "upcoming"
@@ -1369,6 +1831,11 @@ def loans_add_week(loan_id):
     flash(" ".join(parts), "success")
     if skipped:
         flash(f"Skipped {skipped} duplicate date(s).", "warning")
+    if date_clashes:
+        flash(
+            f"{date_clashes} week date(s) not changed — another week already uses that date.",
+            "warning",
+        )
     return redirect(url_for("loans_view", loan_id=loan.id))
 
 
@@ -1378,17 +1845,12 @@ def collection_edit(collection_id):
     loan = sc.loan
 
     if request.method == "POST":
-        if Decimal(sc.amount_paid or 0) > 0:
-            flash("This week already has payments. Use adjustments instead of rewriting paid weeks.", "warning")
-            return redirect(url_for("loans_view", loan_id=loan.id))
-
         new_date = parse_date(request.form.get("due_date"), sc.due_date)
         interest = money(request.form.get("interest"))
         extra_type = request.form.get("extra_type", "none")
         extra_amt = money(request.form.get("extra_amount"))
         if extra_type == "none":
             extra_amt = Decimal("0.00")
-        new_due_amount = interest + extra_amt
 
         # Prevent duplicate dates on same loan
         clash = ScheduledCollection.query.filter(
@@ -1400,6 +1862,16 @@ def collection_edit(collection_id):
             flash("Another week already uses that date.", "danger")
             return render_template("loans/edit_week.html", loan=loan, sc=sc)
 
+        has_payments = Decimal(sc.amount_paid or 0) > 0 and sc.status != "waived"
+        if has_payments:
+            # Paid / partial: only move the date
+            sc.due_date = new_date
+            sc.refresh_status()
+            db.session.commit()
+            flash("Pay date updated.", "success")
+            return redirect(url_for("loans_view", loan_id=loan.id))
+
+        new_due_amount = interest + extra_amt
         old_amount = Decimal(sc.amount_due or 0)
         old_interest = Decimal(sc.interest_portion or 0)
 
@@ -1929,48 +2401,8 @@ def collection_mark_unpaid(collection_id):
 
 @app.route("/collections")
 def collections_list():
-    refresh_collection_statuses()
-    view = request.args.get("view", "week")  # week | day | overdue
-    today = date.today()
-    week_start, week_end = week_bounds(today)
-
-    query = ScheduledCollection.query.join(Loan).join(Borrower)
-
-    if view == "day":
-        day = parse_date(request.args.get("date"), today)
-        query = query.filter(ScheduledCollection.due_date == day)
-        title = f"Collections for {day.isoformat()}"
-        period = (day, day)
-    elif view == "overdue":
-        query = query.filter(ScheduledCollection.status == "overdue")
-        title = "Overdue Collections"
-        period = (None, None)
-        day = today
-    else:
-        query = query.filter(
-            ScheduledCollection.due_date >= week_start,
-            ScheduledCollection.due_date <= week_end,
-        )
-        title = f"Weekly Collections ({week_start.isoformat()} – {week_end.isoformat()})"
-        period = (week_start, week_end)
-        day = today
-
-    status_filter = request.args.get("status")
-    if status_filter:
-        query = query.filter(ScheduledCollection.status == status_filter)
-
-    rows = query.order_by(ScheduledCollection.due_date.asc(), Borrower.name.asc()).all()
-    return render_template(
-        "collections/list.html",
-        rows=rows,
-        view=view,
-        title=title,
-        period=period,
-        day=day,
-        week_start=week_start,
-        week_end=week_end,
-        status_filter=status_filter,
-    )
+    # Old list URL → date-range stats page
+    return redirect(url_for("collections_report", **request.args))
 
 
 # ---------------------------------------------------------------------------

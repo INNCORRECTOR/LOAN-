@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Stats — TIA LOAN COMPANY{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="page-title">Stats</h1>
+    <p class="page-sub">{{ stats.date_from }} → {{ stats.date_to }}</p>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('collections_report') }}" class="btn btn-outline-secondary">This week</a>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">Home</a>
+  </div>
+</div>
+
+<div class="card-panel">
+  <h2 class="section-title">Date range</h2>
+  <p class="section-help">Pick from / to dates to see how much was expected and collected.</p>
+  <form method="get" action="{{ url_for('collections_report') }}" class="form-row cols-3" style="align-items:end">
+    <div>
+      <label class="form-label" for="from">From</label>
+      <input class="form-control" type="date" id="from" name="from" value="{{ stats.date_from }}">
+    </div>
+    <div>
+      <label class="form-label" for="to">To</label>
+      <input class="form-control" type="date" id="to" name="to" value="{{ stats.date_to }}">
+    </div>
+    <div class="action-row" style="margin-top:0">
+      <button type="submit" class="btn btn-primary">Show</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('collections_report') }}">Reset to this week</a>
+    </div>
+  </form>
+</div>
+
+<div class="stat-grid cols-3">
+  <div class="stat-card">
+    <div class="label">Expected (weeks due)</div>
+    <div class="value money">{{ stats.expected|money }}</div>
+    <div class="hint">{{ stats.week_count }} week row(s)</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Paid on those weeks</div>
+    <div class="value money">{{ stats.paid_on_due|money }}</div>
+    <div class="hint">Still due {{ stats.still_due|money }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Cash collected</div>
+    <div class="value money">{{ stats.collected|money }}</div>
+    <div class="hint">By payment date · {{ stats.payment_count }} payment(s)</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Money in</div>
+    <div class="value money">{{ stats.collected_in|money }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Reversals / out</div>
+    <div class="value money">{{ stats.collected_out|money }}</div>
+  </div>
+  <div class="stat-card is-warn">
+    <div class="label">Overdue now</div>
+    <div class="value money">{{ stats.total_overdue|money }}</div>
+    <div class="hint">Current open overdue</div>
+  </div>
+</div>
+
+{% if day_summary %}
+<div class="card-panel tight">
+  <div class="panel-head">
+    <h2 class="section-title">By due date</h2>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Weeks</th>
+          <th>Expected</th>
+          <th>Paid</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in day_summary %}
+        <tr>
+          <td>{{ d.due_date }}</td>
+          <td>{{ d.count }}</td>
+          <td class="money">{{ d.expected|money }}</td>
+          <td class="money">{{ d.paid|money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card-panel tight">
+  <div class="panel-head">
+    <h2 class="section-title">Payments in range</h2>
+  </div>
+  {% if payment_rows %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Borrower</th>
+          <th>Amount</th>
+          <th>Type</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in payment_rows %}
+        {% set p = row.payment %}
+        <tr class="{% if row.kind != 'in' %}table-danger{% endif %}">
+          <td>{{ p.payment_date }}</td>
+          <td>
+            <a href="{{ url_for('loans_view', loan_id=p.loan_id) }}">
+              {{ p.borrower.name if p.borrower else ('Loan #' ~ p.loan_id) }}
+            </a>
+          </td>
+          <td class="money">{% if row.kind != 'in' %}-{% endif %}{{ row.amount|money }}</td>
+          <td>{{ row.kind }}</td>
+          <td class="text-muted">{{ p.notes or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">No payments in this date range.</div>
+  {% endif %}
+</div>
+
+<div class="card-panel tight">
+  <div class="panel-head">
+    <h2 class="section-title">Scheduled weeks due in range</h2>
+  </div>
+  {% if due_rows %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Due</th>
+          <th>Borrower</th>
+          <th>Due amt</th>
+          <th>Paid</th>
+          <th>Left</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in due_rows %}
+        <tr>
+          <td>{{ c.due_date }}</td>
+          <td>
+            <a href="{{ url_for('loans_view', loan_id=c.loan_id) }}">
+              {{ c.loan.borrower.name if c.loan and c.loan.borrower else ('Loan #' ~ c.loan_id) }}
+            </a>
+          </td>
+          <td class="money">{{ c.amount_due|money }}</td>
+          <td class="money">{{ c.amount_paid|money }}</td>
+          <td class="money">{{ c.remaining|money }}</td>
+          <td><span class="badge text-bg-secondary">{{ c.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">No scheduled weeks due in this date range.</div>
+  {% endif %}
+</div>
+{% endblock %}

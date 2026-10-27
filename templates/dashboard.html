@@ -1,54 +1,55 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — Loan Counter{% endblock %}
+{% block title %}Home — TIA LOAN COMPANY{% endblock %}
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-  <div>
-    <h1 class="page-title">Dashboard</h1>
-    <p class="text-muted mb-0 small">Week {{ stats.week_start }} to {{ stats.week_end }}</p>
+<div class="hello">
+  <p class="eyebrow">This week · {{ stats.week_start }} → {{ stats.week_end }}</p>
+  <h1>TIA LOAN COMPANY</h1>
+</div>
+
+<div class="stat-grid cols-3">
+  <a class="stat-card is-featured" href="{{ url_for('collections_report') }}">
+    <div>
+      <div class="label">Collected this week</div>
+      <div class="value money">{{ stats.actual_week|money }}</div>
+    </div>
+    <div>
+      <div class="soft-meter" aria-hidden="true"><span style="width: {{ stats.collected_pct }}%"></span></div>
+      <div class="hint-link">View by date →</div>
+    </div>
+  </a>
+
+  <a class="stat-card" href="{{ url_for('collections_report') }}">
+    <div class="label">Expected this week</div>
+    <div class="value money">{{ stats.expected_week|money }}</div>
+    <div class="hint-link">Open date range →</div>
+  </a>
+
+  <div class="stat-card is-warn">
+    <div class="label">Overdue</div>
+    <div class="value money">{{ stats.total_overdue|money }}</div>
+    <div class="hint">Still unpaid past due</div>
   </div>
-  <div class="d-flex flex-wrap gap-2">
-    <a href="{{ url_for('loans_add') }}" class="btn btn-primary btn-sm">Add borrower</a>
-    <a href="{{ url_for('loans_list') }}" class="btn btn-outline-secondary btn-sm">View all loans</a>
-    <a href="{{ url_for('balance_page') }}" class="btn btn-outline-success btn-sm">Balance</a>
+
+  <div class="stat-card">
+    <div class="label">Active loans</div>
+    <div class="value">{{ stats.active_loans }}</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="label">Total principal</div>
+    <div class="value money">{{ stats.total_capital|money }}</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="label">Outstanding interest</div>
+    <div class="value money">{{ stats.outstanding_interest|money }}</div>
   </div>
 </div>
 
-<div class="row g-3">
-  <div class="col-6 col-md-4">
-    <div class="stat-card">
-      <div class="label">People with loans</div>
-      <div class="value">{{ stats.active_loans }}</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4">
-    <div class="stat-card">
-      <div class="label">Total principal</div>
-      <div class="value">{{ stats.total_capital|money }}</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4">
-    <div class="stat-card">
-      <div class="label">Outstanding interest</div>
-      <div class="value">{{ stats.outstanding_interest|money }}</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4">
-    <div class="stat-card">
-      <div class="label">Expected this week</div>
-      <div class="value">{{ stats.expected_week|money }}</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4">
-    <div class="stat-card">
-      <div class="label">Collected this week</div>
-      <div class="value">{{ stats.actual_week|money }}</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4">
-    <div class="stat-card alert-soft">
-      <div class="label">Overdue</div>
-      <div class="value">{{ stats.total_overdue|money }}</div>
-    </div>
-  </div>
+<div class="page-actions">
+  <a href="{{ url_for('loans_add') }}" class="btn btn-primary">Add borrower</a>
+  <a href="{{ url_for('loans_list') }}" class="btn btn-outline-secondary">All loans</a>
+  <a href="{{ url_for('balance_page') }}" class="btn btn-outline-secondary">Balance</a>
+  <a href="{{ url_for('backup_excel') }}" class="btn btn-outline-secondary" data-confirm="Do you want to download the Excel backup?">Download Excel backup</a>
 </div>
 {% endblock %}
