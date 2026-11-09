@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Receipt — SYNERGY capital & Finance</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap");
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #0a0a0b;
+      color: #f2f2f4;
+      font-family: "Outfit", system-ui, sans-serif;
+    }
+    .shell {
+      max-width: 420px;
+      margin: 0 auto;
+      padding: 1rem 1rem 2rem;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
+      margin-bottom: 0.9rem;
+    }
+    .toolbar .btn {
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.82rem;
+      padding: 0.45rem 0.9rem;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: #161618;
+      color: #f2f2f4;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .toolbar .btn:disabled { opacity: 0.55; cursor: wait; }
+    .toolbar .btn-main {
+      background: #fff;
+      color: #111;
+      border-color: #fff;
+    }
+    .wa-share {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      height: 42px;
+      padding: 0;
+      border-radius: 12px;
+      border: 1px solid rgba(37, 211, 102, 0.35);
+      background: rgba(37, 211, 102, 0.14);
+      cursor: pointer;
+    }
+    .wa-share:disabled { opacity: 0.55; cursor: wait; }
+    .wa-share img {
+      width: 24px;
+      height: 24px;
+      object-fit: contain;
+      display: block;
+    }
+    .card {
+      background: #141416;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 1.4rem 1.2rem 1.25rem;
+    }
+    .brand {
+      text-align: center;
+      margin-bottom: 1.25rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px dashed rgba(255,255,255,0.12);
+    }
+    .brand img {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      object-fit: cover;
+      border: 1px solid rgba(255,255,255,0.12);
+      margin-bottom: 0.65rem;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+    }
+    .brand .sub {
+      margin: 0.3rem 0 0;
+      color: #9a9aa2;
+      font-size: 0.78rem;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 1rem;
+      padding: 0.55rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 0.95rem;
+    }
+    .row:last-of-type { border-bottom: 0; }
+    .row .k { color: #9a9aa2; }
+    .row .v {
+      font-weight: 650;
+      font-variant-numeric: tabular-nums;
+    }
+    .total {
+      margin-top: 0.85rem;
+      padding: 0.9rem 1rem;
+      border-radius: 14px;
+      background: rgba(61, 214, 140, 0.1);
+      border: 1px solid rgba(61, 214, 140, 0.3);
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    .total .k { font-weight: 600; }
+    .total .v {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #3dd68c;
+      font-variant-numeric: tabular-nums;
+    }
+    .foot {
+      margin-top: 1.1rem;
+      text-align: center;
+      color: #7a7a82;
+      font-size: 0.72rem;
+    }
+    .hint {
+      margin: 0.55rem 0 0;
+      color: #7a7a82;
+      font-size: 0.75rem;
+      text-align: center;
+    }
+    @media print {
+      body { background: #fff; color: #111; }
+      .toolbar, .hint { display: none !important; }
+      .card { border: 1px solid #ddd; background: #fff; box-shadow: none; }
+      .brand .sub, .row .k, .foot { color: #666; }
+      .brand, .row { border-color: #e6e6e6; }
+      .total { background: #f3fff8; border-color: #bfe8cf; }
+      .total .v { color: #0a7a45; }
+    }
+  </style>
+</head>
+<body>
+  {% set wa_msg = "SYNERGY receipt — To pay: " ~ (receipt.total_to_pay|money) %}
+  {% set wa = loan.borrower.phone|whatsapp_url(wa_msg) %}
+  <div class="shell">
+    <div class="toolbar">
+      <a class="btn" href="{{ url_for('loans_view', loan_id=loan.id) }}">← Back</a>
+      {% if wa %}
+      <button type="button" class="wa-share" id="shareImgBtn" title="Share to WhatsApp {{ loan.borrower.phone }}">
+        <img src="{{ url_for('static', filename='logo/WhatsApp.svg.webp') }}" alt="WhatsApp">
+      </button>
+      {% else %}
+      <button type="button" class="btn btn-main" id="shareImgBtn">Share image</button>
+      {% endif %}
+      <button type="button" class="btn" id="saveImgBtn">Save image</button>
+      <button type="button" class="btn" onclick="window.print()">Print</button>
+    </div>
+    {% if wa %}
+    <p class="hint">Saves the receipt image and opens WhatsApp chat with {{ loan.borrower.phone }} — attach the photo there.</p>
+    {% else %}
+    <p class="hint">No phone on this person. Add a number to share straight to WhatsApp.</p>
+    {% endif %}
+
+    <article class="card" id="receiptCard">
+      <header class="brand">
+        <img id="logoImg" src="{{ url_for('static', filename='logo/image.png') }}" alt="SYNERGY capital & Finance" crossorigin="anonymous">
+        <h1>SYNERGY capital & Finance</h1>
+        <p class="sub">Receipt · {{ receipt.issued }}</p>
+      </header>
+
+      <div class="row">
+        <span class="k">Principal</span>
+        <span class="v">
+          {% if receipt.capital_paid %}Paid{% else %}{{ receipt.principal|money }}{% endif %}
+        </span>
+      </div>
+      <div class="row">
+        <span class="k">Interest to pay</span>
+        <span class="v">{{ receipt.interest_to_pay|money }}</span>
+      </div>
+      {% if not receipt.capital_paid and receipt.capital_left > 0 %}
+      <div class="row">
+        <span class="k">Capital left</span>
+        <span class="v">{{ receipt.capital_left|money }}</span>
+      </div>
+      {% endif %}
+      <div class="row">
+        <span class="k">Weeks</span>
+        <span class="v">{{ receipt.week_count }}</span>
+      </div>
+
+      <div class="total">
+        <span class="k">To pay</span>
+        <span class="v">{{ receipt.total_to_pay|money }}</span>
+      </div>
+
+      <p class="foot">SYNERGY capital & Finance</p>
+    </article>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script>
+  (function () {
+    var card = document.getElementById("receiptCard");
+    var shareBtn = document.getElementById("shareImgBtn");
+    var saveBtn = document.getElementById("saveImgBtn");
+    var WA_URL = {{ wa|tojson }};
+    var busy = false;
+
+    function setBusy(on) {
+      busy = on;
+      if (shareBtn) shareBtn.disabled = on;
+      if (saveBtn) saveBtn.disabled = on;
+    }
+
+    function makePngBlob() {
+      return html2canvas(card, {
+        backgroundColor: "#141416",
+        scale: Math.min(3, window.devicePixelRatio || 2),
+        useCORS: true,
+        allowTaint: true,
+        logging: false
+      }).then(function (canvas) {
+        return new Promise(function (resolve) {
+          canvas.toBlob(function (blob) {
+            resolve(blob);
+          }, "image/png");
+        });
+      });
+    }
+
+    function downloadBlob(blob) {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "SYNERGY_receipt_{{ receipt.issued }}.png";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+    }
+
+    function openWhatsApp() {
+      if (!WA_URL) return;
+      window.open(WA_URL, "_blank", "noopener");
+    }
+
+    async function shareOrSave() {
+      if (busy) return;
+      setBusy(true);
+      try {
+        var blob = await makePngBlob();
+        if (!blob) throw new Error("Could not make image");
+        var file = new File([blob], "SYNERGY_receipt.png", { type: "image/png" });
+
+        if (WA_URL) {
+          // Save image so it can be attached, then open that person's WhatsApp chat
+          downloadBlob(blob);
+          openWhatsApp();
+        } else if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: "SYNERGY capital & Finance receipt",
+            text: "SYNERGY capital & Finance receipt"
+          });
+        } else if (navigator.share) {
+          downloadBlob(blob);
+          alert("Image saved. Open WhatsApp / gallery and share the saved receipt photo.");
+        } else {
+          downloadBlob(blob);
+          alert("Image saved. Share that photo in WhatsApp or any app.");
+        }
+      } catch (err) {
+        if (err && err.name === "AbortError") {
+          // user cancelled share sheet
+        } else {
+          try {
+            var blob2 = await makePngBlob();
+            downloadBlob(blob2);
+            if (WA_URL) openWhatsApp();
+            else alert("Image saved. Share that photo from your gallery.");
+          } catch (e2) {
+            alert("Could not create receipt image. Try Print instead.");
+          }
+        }
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function saveOnly() {
+      if (busy) return;
+      setBusy(true);
+      try {
+        var blob = await makePngBlob();
+        downloadBlob(blob);
+      } catch (err) {
+        alert("Could not save image.");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    if (shareBtn) shareBtn.addEventListener("click", shareOrSave);
+    if (saveBtn) saveBtn.addEventListener("click", saveOnly);
+  })();
+  </script>
+</body>
+</html>

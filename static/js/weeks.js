@@ -14,12 +14,16 @@ window.LoanWeeks = (function () {
     var body = document.getElementById(options.bodyId || "weeksBody");
     var hint = document.getElementById(options.hintId || "weeksEmptyHint");
     var addBtn = document.getElementById(options.addBtnId || "addWeekBtn");
+    var addBtns = Array.prototype.slice.call(
+      document.querySelectorAll(options.addBtnSelector || ".add-week-btn, #addWeekBtn, #addWeekBtnBottom")
+    );
+    if (addBtn && addBtns.indexOf(addBtn) === -1) addBtns.push(addBtn);
     var interestInput = document.getElementById(options.interestId || "interest_amount");
     var startIndex = options.startIndex || 0;
     var defaultDate = options.defaultDate || null;
     var withStatus = !!options.withStatus;
 
-    if (!body || !addBtn) return;
+    if (!body || !addBtns.length) return;
 
     function renumber() {
       var rows = body.querySelectorAll(".week-card.week-new");
@@ -45,6 +49,30 @@ window.LoanWeeks = (function () {
       if (totalEl) totalEl.textContent = (interest + extra).toFixed(2);
     }
 
+    function paintStatus(row, value) {
+      row.classList.remove("is-paid", "is-not-paid", "is-maaf", "is-overdue");
+      var pill = row.querySelector(".week-status-pill");
+      var sel = row.querySelector(".week-status-select, .week-status, select[name='edit_week_status']");
+      var cls = "is-not-paid";
+      var label = "Not paid";
+      if (value === "paid") {
+        cls = "is-paid";
+        label = "Paid";
+      } else if (value === "maaf") {
+        cls = "is-maaf";
+        label = "Maaf";
+      }
+      row.classList.add(cls);
+      if (pill) {
+        pill.className = "week-status-pill " + cls;
+        pill.textContent = label;
+      }
+      if (sel) {
+        sel.classList.remove("is-paid", "is-not-paid", "is-maaf");
+        sel.classList.add("week-status-select", cls);
+      }
+    }
+
     function wireRow(row) {
       row.querySelectorAll(".week-interest, .week-extra").forEach(function (el) {
         el.addEventListener("input", function () {
@@ -59,6 +87,14 @@ window.LoanWeeks = (function () {
             if (extra) extra.value = "0";
           }
           recalcRow(row);
+        });
+      }
+      var statusSel = row.querySelector(
+        ".week-status-select, .week-status, select[name='edit_week_status'], select[name='week_status']"
+      );
+      if (statusSel) {
+        statusSel.addEventListener("change", function () {
+          paintStatus(row, this.value);
         });
       }
       var removeBtn = row.querySelector(".remove-week");
@@ -90,16 +126,18 @@ window.LoanWeeks = (function () {
       var statusBlock = withStatus
         ? '<div class="week-field">' +
           '<label class="form-label">Status</label>' +
-          '<select name="week_status" class="form-select form-select-sm week-status">' +
+          '<select name="week_status" class="form-select form-select-sm week-status week-status-select is-not-paid">' +
           '<option value="not_paid" selected>Not paid</option>' +
           '<option value="paid">Paid</option>' +
           '<option value="maaf">Maaf</option>' +
           "</select></div>"
         : "";
 
+      card.className = "week-card week-new is-not-paid";
       card.innerHTML =
         '<div class="week-card-head">' +
         '<span class="week-badge">Week <span class="week-num"></span></span>' +
+        '<span class="week-status-pill is-not-paid">Not paid</span>' +
         '<div class="week-total-wrap">Total <strong class="week-total">0.00</strong></div>' +
         '<button type="button" class="btn btn-sm btn-outline-danger remove-week">Remove</button>' +
         "</div>" +
@@ -148,8 +186,10 @@ window.LoanWeeks = (function () {
     // wire existing cards (edit page)
     body.querySelectorAll(".week-card").forEach(wireRow);
 
-    addBtn.addEventListener("click", function () {
-      addWeek();
+    addBtns.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        addWeek();
+      });
     });
 
     renumber();

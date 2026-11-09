@@ -39,7 +39,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var logoSrc = (document.querySelector(".brand-logo") || {}).src || "/static/logo/image.png";
     overlay.innerHTML =
       '<div class="confirm-card" role="dialog" aria-modal="true">' +
-      '<div class="confirm-logo-wrap"><img class="confirm-logo" src="" alt="TIA LOAN COMPANY"></div>' +
+      '<div class="confirm-logo-wrap"><img class="confirm-logo" src="" alt="SYNERGY capital & Finance"></div>' +
       '<p class="confirm-msg"></p>' +
       '<div class="confirm-actions">' +
       '<button type="button" class="btn btn-outline-secondary confirm-no">No</button>' +

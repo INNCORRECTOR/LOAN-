@@ -50,6 +50,9 @@ class Loan(db.Model):
 
     # active | paused | closed
     status = db.Column(db.String(20), nullable=False, default="active", index=True)
+    # Admin marked capital/principal as fully paid — only interest continues
+    capital_paid = db.Column(db.Boolean, nullable=False, default=False)
+    capital_paid_date = db.Column(db.Date, nullable=True)
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(

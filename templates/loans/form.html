@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Add borrower — TIA LOAN COMPANY{% endblock %}
+{% block title %}Add person — SYNERGY capital & Finance{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
-    <h1 class="page-title">Add borrower</h1>
-    <p class="page-sub">Person + loan in one step. Weeks are optional.</p>
+    <h1 class="page-title">Add person</h1>
+    <p class="page-sub">Name, capital, and weekly interest</p>
   </div>
 </div>
 
@@ -51,16 +51,19 @@
         <h2 class="section-title">Payment weeks <span class="text-muted fw-normal">(optional)</span></h2>
         <p class="section-help mb-0">Add now, or later on the borrower page.</p>
       </div>
-      <button type="button" class="btn btn-outline-secondary btn-sm" id="addWeekBtn">+ Add week</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm add-week-btn" id="addWeekBtn">+ Add week</button>
     </div>
 
     <div class="weeks-list" id="weeksBody"></div>
     <p class="page-sub mt-2" id="weeksEmptyHint">No weeks yet — you can save without them.</p>
+    <div class="action-row weeks-bottom-actions">
+      <button type="button" class="btn btn-outline-secondary add-week-btn" id="addWeekBtnBottom">+ Add week</button>
+    </div>
   </form>
 </div>
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/weeks.js') }}"></script>
+<script src="{{ url_for('static', filename='js/weeks.js') }}?v=7"></script>
 <script>LoanWeeks.init({});</script>
 {% endblock %}

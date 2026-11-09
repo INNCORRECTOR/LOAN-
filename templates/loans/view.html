@@ -1,52 +1,67 @@
 {% extends "base.html" %}
-{% block title %}{{ loan.borrower.name }} — TIA LOAN COMPANY{% endblock %}
+{% block title %}{{ loan.borrower.name }} — SYNERGY capital & Finance{% endblock %}
 {% block content %}
-<div class="page-head">
+<div class="page-head person-head">
   <div>
+    <a class="back-link" href="{{ url_for('loans_list') }}">← People</a>
     <h1 class="page-title">{{ loan.borrower.name }}</h1>
     <p class="page-sub">
-      {{ loan.borrower.phone or 'No phone' }}
-      · Loan taken {{ loan.loan_date }}
-      · <span class="badge text-bg-{{ loan.status|status_badge }}">{{ loan.status }}</span>
+      {% if loan.borrower.phone %}{{ loan.borrower.phone }} · {% endif %}
+      Since {{ loan.loan_date }}
+      {% if loan.capital_paid %} · <span class="text-success">Capital paid</span>{% endif %}
     </p>
     {% if loan.notes %}
     <p class="loan-notes">{{ loan.notes }}</p>
     {% endif %}
   </div>
   <div class="page-actions">
-    <a href="{{ url_for('loans_list') }}" class="btn btn-outline-secondary btn-sm">Back</a>
-    <form method="post" action="{{ url_for('loans_delete', loan_id=loan.id) }}">
-      <button class="btn btn-outline-danger btn-sm" data-confirm="Delete this person and loan permanently?">Delete</button>
-    </form>
+    {% set wa = loan.borrower.phone|whatsapp_url %}
+    {% if wa %}
+    <a class="wa-btn wa-btn-lg" href="{{ wa }}" target="_blank" rel="noopener" title="WhatsApp">
+      <img src="{{ url_for('static', filename='logo/WhatsApp.svg.webp') }}" alt="WhatsApp">
+    </a>
+    {% endif %}
+    <a href="{{ url_for('loans_receipt', loan_id=loan.id) }}" class="btn btn-primary btn-sm">Receipt</a>
+    <details class="more-menu">
+      <summary class="btn btn-outline-secondary btn-sm">More</summary>
+      <div class="more-menu-panel">
+        {% if loan.status != 'closed' and not loan.capital_paid %}
+        <form method="post" action="{{ url_for('loans_mark_capital_paid', loan_id=loan.id) }}">
+          <button class="more-menu-btn" data-confirm="Mark capital as Paid? After this, only interest continues.">Mark capital paid</button>
+        </form>
+        {% elif loan.status != 'closed' and loan.capital_paid %}
+        <form method="post" action="{{ url_for('loans_unmark_capital_paid', loan_id=loan.id) }}">
+          <button class="more-menu-btn" data-confirm="Clear Capital Paid flag?">Undo capital paid</button>
+        </form>
+        {% endif %}
+        <form method="post" action="{{ url_for('loans_delete', loan_id=loan.id) }}">
+          <button class="more-menu-btn is-danger" data-confirm="Delete this person and loan permanently?">Delete person</button>
+        </form>
+      </div>
+    </details>
   </div>
 </div>
 
-<div class="stat-grid cols-3">
-  <div class="stat-card">
-    <div class="label">Weeks</div>
-    <div class="value">{{ summary.total_weeks }}</div>
-    <div class="hint">{{ summary.paid_weeks }} paid · {{ summary.not_paid_weeks }} not paid{% if summary.maaf_weeks %} · {{ summary.maaf_weeks }} maaf{% endif %}</div>
+<div class="person-summary">
+  <div class="person-summary-item">
+    <span class="label">Still owed</span>
+    <span class="value money">{{ summary.interest_plus_principal|money }}</span>
   </div>
-  <div class="stat-card">
-    <div class="label">Total interest</div>
-    <div class="value money">{{ summary.total_interest|money }}</div>
+  <div class="person-summary-item">
+    <span class="label">Capital</span>
+    {% if loan.capital_paid %}
+    <span class="value is-ok">Paid</span>
+    {% else %}
+    <span class="value money">{{ summary.principal|money }}</span>
+    {% endif %}
   </div>
-  <div class="stat-card">
-    <div class="label">Principal</div>
-    <div class="value money">{{ summary.principal|money }}</div>
+  <div class="person-summary-item">
+    <span class="label">Collected</span>
+    <span class="value money">{{ summary.payments_received|money }}</span>
   </div>
-  <div class="stat-card">
-    <div class="label">Interest + principal</div>
-    <div class="value money">{{ summary.interest_plus_principal|money }}</div>
-    <div class="hint">Weeks left {{ summary.remaining_to_pay|money }} + principal</div>
-  </div>
-  <div class="stat-card is-ok">
-    <div class="label">Total paid</div>
-    <div class="value money">{{ summary.payments_received|money }}</div>
-  </div>
-  <div class="stat-card is-warn">
-    <div class="label">Still to pay</div>
-    <div class="value money">{{ summary.remaining_to_pay|money }}</div>
+  <div class="person-summary-item">
+    <span class="label">Weeks</span>
+    <span class="value">{{ summary.paid_weeks }}/{{ summary.total_weeks }}</span>
   </div>
 </div>
 
@@ -134,24 +149,65 @@
     {% if topups %}
     <hr class="divider">
     <div class="page-sub mb-1">Top-up history</div>
-    <ul class="mb-0 small text-muted">
-      {% for t in topups %}
-      <li>
-        {{ t.adjustment_date }} —
-        {% if t.adjustment_type == 'capital_topup' %}+{{ t.amount|money }} capital
-        {% else %}+{{ t.amount|money }} weekly interest{% endif %}
-        — {{ t.reason }}
-      </li>
-      {% endfor %}
-    </ul>
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Amount</th>
+            <th>Reason</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in topups %}
+          <tr>
+            <td>{{ t.adjustment_date }}</td>
+            <td>{% if t.adjustment_type == 'capital_topup' %}Capital{% else %}Weekly interest{% endif %}</td>
+            <td class="money">+{{ t.amount|money }}</td>
+            <td class="text-muted">{{ t.reason or '—' }}</td>
+            <td class="text-end">
+              {% if loan.status != 'closed' %}
+              <form method="post" action="{{ url_for('loans_delete_topup', loan_id=loan.id, adj_id=t.id) }}" class="d-inline">
+                <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Delete this + Add top-up? Capital/interest will be reduced.">Delete</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if topups and loan.status == 'closed' %}
+<div class="card-panel tight">
+  <div class="panel-head"><h2 class="section-title">Top-ups</h2></div>
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Reason</th></tr></thead>
+      <tbody>
+        {% for t in topups %}
+        <tr>
+          <td>{{ t.adjustment_date }}</td>
+          <td>{% if t.adjustment_type == 'capital_topup' %}Capital{% else %}Weekly interest{% endif %}</td>
+          <td class="money">+{{ t.amount|money }}</td>
+          <td>{{ t.reason or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </div>
 {% endif %}
 
 <div class="card-panel tight">
   <div class="panel-head">
-    <h2 class="section-title">Payments</h2>
+    <h2 class="section-title">Payments (− Pay)</h2>
   </div>
   <div class="table-responsive">
     <table class="table align-middle">
@@ -161,6 +217,7 @@
           <th>Amount</th>
           <th>Method</th>
           <th>Notes</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -172,9 +229,16 @@
           </td>
           <td>{{ p.payment_method }}</td>
           <td>{{ p.notes or '—' }}{% if p.is_reversal %} <span class="badge text-bg-warning">reversal</span>{% endif %}</td>
+          <td class="text-end">
+            {% if loan.status != 'closed' %}
+            <form method="post" action="{{ url_for('loans_delete_payment', loan_id=loan.id, payment_id=p.id) }}" class="d-inline">
+              <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Delete this payment? Week paid amounts will be undone.">Delete</button>
+            </form>
+            {% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="empty-state">No payments yet. Use <strong>− Pay</strong> above.</td></tr>
+        <tr><td colspan="5" class="empty-state">No payments yet. Use <strong>− Pay</strong> above.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -194,8 +258,13 @@
         <input type="text" name="phone" class="form-control" value="{{ loan.borrower.phone or '' }}" {% if loan.status == 'closed' %}disabled{% endif %}>
       </div>
       <div>
-        <label class="form-label">Principal</label>
-        <input type="text" class="form-control" value="{{ loan.principal_amount }}" disabled>
+        <label class="form-label">Capital (principal)</label>
+        {% if loan.capital_paid %}
+        <input type="text" class="form-control" value="Paid" disabled>
+        <div class="form-text">Original {{ loan.principal_amount }} · marked paid{% if loan.capital_paid_date %} on {{ loan.capital_paid_date }}{% endif %}</div>
+        {% else %}
+        <input type="number" step="0.01" min="0.01" name="principal_amount" class="form-control" value="{{ loan.principal_amount }}" {% if loan.status == 'closed' %}disabled{% endif %}>
+        {% endif %}
       </div>
       <div>
         <label class="form-label">Interest / week (new weeks)</label>
@@ -219,16 +288,25 @@
         <p class="section-help mb-0">One card per week. Change date / amounts, then Save.</p>
       </div>
       {% if loan.status != 'closed' %}
-      <button type="button" class="btn btn-outline-secondary btn-sm" id="addWeekBtn">+ Add week</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm add-week-btn" id="addWeekBtn">+ Add week</button>
       {% endif %}
     </div>
 
     <div class="weeks-list" id="weeksBody">
       {% for w in week_forms %}
       {% set c = w.sc %}
-      <div class="week-card week-existing {% if w.pay_status == 'paid' %}is-paid{% elif w.pay_status == 'maaf' %}is-maaf{% elif c.status == 'overdue' %}is-overdue{% endif %}" data-due-date="{{ c.due_date }}">
+      <div class="week-card week-existing {% if w.pay_status == 'paid' %}is-paid{% elif w.pay_status == 'maaf' %}is-maaf{% elif c.status == 'overdue' %}is-overdue{% else %}is-not-paid{% endif %}" data-due-date="{{ c.due_date }}">
         <div class="week-card-head">
           <span class="week-badge">Week <span class="week-num">{{ loop.index }}</span></span>
+          {% if w.pay_status == 'paid' %}
+          <span class="week-status-pill is-paid">Paid</span>
+          {% elif w.pay_status == 'maaf' %}
+          <span class="week-status-pill is-maaf">Maaf</span>
+          {% elif c.status == 'overdue' %}
+          <span class="week-status-pill is-overdue">Overdue</span>
+          {% else %}
+          <span class="week-status-pill is-not-paid">Not paid</span>
+          {% endif %}
           <div class="week-total-wrap">Total <strong class="week-total">{{ c.amount_due|money }}</strong></div>
           {% if loan.status != 'closed' %}
           <button type="submit" class="btn btn-sm btn-outline-danger" formnovalidate
@@ -262,7 +340,7 @@
           </div>
           <div class="week-field">
             <label class="form-label">Status</label>
-            <select name="edit_week_status" class="form-select form-select-sm">
+            <select name="edit_week_status" class="form-select form-select-sm week-status-select {% if w.pay_status == 'paid' %}is-paid{% elif w.pay_status == 'maaf' %}is-maaf{% else %}is-not-paid{% endif %}">
               <option value="not_paid" {% if w.pay_status == 'not_paid' %}selected{% endif %}>Not paid</option>
               <option value="paid" {% if w.pay_status == 'paid' %}selected{% endif %}>Paid</option>
               <option value="maaf" {% if w.pay_status == 'maaf' %}selected{% endif %}>Maaf</option>
@@ -287,7 +365,8 @@
     </p>
 
     {% if loan.status != 'closed' %}
-    <div class="action-row">
+    <div class="action-row weeks-bottom-actions">
+      <button type="button" class="btn btn-outline-secondary add-week-btn" id="addWeekBtnBottom">+ Add week</button>
       <button type="submit" class="btn btn-primary" name="action" value="save">Save</button>
     </div>
     {% endif %}
@@ -297,7 +376,7 @@
 
 {% block scripts %}
 {% if loan.status != 'closed' %}
-<script src="{{ url_for('static', filename='js/weeks.js') }}"></script>
+<script src="{{ url_for('static', filename='js/weeks.js') }}?v=7"></script>
 <script>
 (function () {
   var lastDate = null;

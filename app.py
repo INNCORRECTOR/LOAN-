@@ -300,6 +300,21 @@ def money_filter(value):
         return "0.00"
 
 
+@app.template_filter("whatsapp_url")
+def whatsapp_url_filter(phone, message="Hey? When are you paying?"):
+    """Build a wa.me chat link from a phone number, or '' if unusable."""
+    if not phone:
+        return ""
+    digits = "".join(ch for ch in str(phone) if ch.isdigit())
+    if len(digits) == 10:
+        digits = "91" + digits
+    if len(digits) < 10:
+        return ""
+    from urllib.parse import quote
+
+    return f"https://wa.me/{digits}?text={quote(message)}"
+
+
 @app.template_filter("status_badge")
 def status_badge(status):
     mapping = {
@@ -321,20 +336,53 @@ def status_badge(status):
 # Dashboard
 # ---------------------------------------------------------------------------
 
+def _home_due_groups(statuses, due_on=None, due_before=None):
+    """Group unpaid week rows by loan for a simple Home collect list."""
+    q = ScheduledCollection.query.filter(ScheduledCollection.status.in_(statuses))
+    if due_on is not None:
+        q = q.filter(ScheduledCollection.due_date == due_on)
+    if due_before is not None:
+        q = q.filter(ScheduledCollection.due_date < due_before)
+    rows = q.order_by(ScheduledCollection.due_date.asc()).all()
+    by_loan = {}
+    for sc in rows:
+        rem = sc.remaining
+        if rem <= 0:
+            continue
+        loan = sc.loan
+        if not loan or loan.status == "closed":
+            continue
+        item = by_loan.get(loan.id)
+        if not item:
+            by_loan[loan.id] = {
+                "loan_id": loan.id,
+                "name": loan.borrower.name if loan.borrower else f"Loan #{loan.id}",
+                "phone": (loan.borrower.phone if loan.borrower else None) or "",
+                "amount": rem,
+                "due_date": sc.due_date,
+                "weeks": 1,
+            }
+        else:
+            item["amount"] += rem
+            item["weeks"] += 1
+            if sc.due_date < item["due_date"]:
+                item["due_date"] = sc.due_date
+    return sorted(by_loan.values(), key=lambda x: (x["due_date"], x["name"].lower()))
+
+
 @app.route("/")
 def dashboard():
     refresh_collection_statuses()
 
     week_start, week_end = week_bounds()
-    active_loans = Loan.query.filter_by(status="active").count()
+    today = date.today()
 
     loans = Loan.query.filter(Loan.status.in_(["active", "paused"])).all()
     total_capital = Decimal("0.00")
-    outstanding_interest = Decimal("0.00")
     for loan in loans:
         bal = loan_balances(loan)
-        total_capital += bal["original_principal"]
-        outstanding_interest += bal["outstanding_interest"]
+        if not loan.capital_paid:
+            total_capital += bal["original_principal"]
 
     week_collections = ScheduledCollection.query.filter(
         ScheduledCollection.due_date >= week_start,
@@ -344,27 +392,31 @@ def dashboard():
     expected_week = sum((Decimal(c.amount_due or 0) for c in week_collections), Decimal("0.00"))
     actual_week = sum((Decimal(c.amount_paid or 0) for c in week_collections), Decimal("0.00"))
 
-    overdue_rows = ScheduledCollection.query.filter(
-        ScheduledCollection.status == "overdue"
-    ).all()
-    total_overdue = sum((c.remaining for c in overdue_rows), Decimal("0.00"))
+    due_today = _home_due_groups(["due_today", "partially_paid"], due_on=today)
+    overdue = _home_due_groups(["overdue", "partially_paid"], due_before=today)
+    total_overdue = sum((r["amount"] for r in overdue), Decimal("0.00"))
+    total_today = sum((r["amount"] for r in due_today), Decimal("0.00"))
 
     collected_pct = 0
     if expected_week > 0:
         collected_pct = int(min((actual_week / expected_week) * 100, Decimal("100")))
 
     stats = {
-        "active_loans": active_loans,
-        "total_capital": total_capital,
-        "outstanding_interest": outstanding_interest,
         "expected_week": expected_week,
         "actual_week": actual_week,
         "total_overdue": total_overdue,
+        "total_today": total_today,
+        "total_capital": total_capital,
         "week_start": week_start,
         "week_end": week_end,
         "collected_pct": collected_pct,
     }
-    return render_template("dashboard.html", stats=stats)
+    return render_template(
+        "dashboard.html",
+        stats=stats,
+        due_today=due_today,
+        overdue=overdue,
+    )
 
 
 @app.route("/backup.xlsx")
@@ -676,7 +728,7 @@ def backup_excel():
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
-    filename = f"TIA_LOAN_backup_{date.today().isoformat()}.xlsx"
+    filename = f"SYNERGY_backup_{date.today().isoformat()}.xlsx"
     return send_file(
         buf,
         as_attachment=True,
@@ -1073,8 +1125,8 @@ def _update_week_collection(sc, due, interest, extra_type, extra_amt):
     """
     Apply inline edits to a week.
     Pay date always updates (unless another week on this loan already uses that date).
-    Interest/extra amounts only change when the week has no money paid yet (or is maaf).
-    Returns: "ok" | "date_only" | "clash" | False
+    Interest/extra amounts update unless the week is fully paid (status paid).
+    Partial weeks stay editable. Returns: "ok" | "date_only" | "clash" | False
     """
     if extra_type == "none":
         extra_amt = Decimal("0.00")
@@ -1090,14 +1142,20 @@ def _update_week_collection(sc, due, interest, extra_type, extra_amt):
     # Date can always change
     sc.due_date = due
 
-    has_payments = Decimal(sc.amount_paid or 0) > 0 and sc.status != "waived"
-    if has_payments:
-        # Keep amounts as-is for paid / partially paid weeks; only date moved
-        if sc.status != "waived":
-            sc.refresh_status()
+    paid_amt = Decimal(sc.amount_paid or 0)
+    fully_paid = sc.status == "paid" or (
+        paid_amt > 0 and paid_amt >= Decimal(sc.amount_due or 0) and sc.status != "waived"
+    )
+    if fully_paid and sc.status != "waived":
+        # Fully paid week: only date moves; keep amounts
+        sc.refresh_status()
         return "date_only"
 
     new_due_amount = interest + extra_amt
+    # Don't drop due below what's already paid on a partial week
+    if paid_amt > 0 and new_due_amount < paid_amt:
+        new_due_amount = paid_amt
+
     old_interest = Decimal(sc.interest_portion or 0)
     old_amount = Decimal(sc.amount_due or 0)
 
@@ -1523,7 +1581,11 @@ def loans_view(loan_id):
 
     principal = Decimal(loan.principal_amount or 0)
     interest_left = max(total_interest - min(total_paid, total_interest), Decimal("0.00"))
-    interest_plus_principal = remaining_to_pay + principal
+    # After capital is marked paid, "still to pay" is interest weeks only
+    if loan.capital_paid:
+        interest_plus_principal = remaining_to_pay
+    else:
+        interest_plus_principal = remaining_to_pay + Decimal(bal["remaining_principal"] or 0)
 
     # Payments received (so Pay entries always show up)
     payments = (
@@ -1551,6 +1613,8 @@ def loans_view(loan_id):
         "payments_received": payments_received,
         "remaining_to_pay": remaining_to_pay,
         "principal": principal,
+        "remaining_principal": bal["remaining_principal"],
+        "capital_paid": bool(loan.capital_paid),
         "interest_plus_principal": interest_plus_principal,
         "interest_left": interest_left,
     }
@@ -1575,6 +1639,136 @@ def loans_view(loan_id):
     )
 
 
+@app.route("/loans/<int:loan_id>/receipt")
+def loans_receipt(loan_id):
+    """Shareable receipt: principal, interest to pay, weeks — no total paid."""
+    loan = Loan.query.get_or_404(loan_id)
+    refresh_collection_statuses(loan.id)
+    bal = loan_balances(loan)
+    schedule = (
+        ScheduledCollection.query.filter_by(loan_id=loan.id)
+        .order_by(ScheduledCollection.due_date.asc())
+        .all()
+    )
+
+    weeks = []
+    interest_to_pay = Decimal("0.00")
+    for i, sc in enumerate(schedule, start=1):
+        status = _week_ui_status(sc)
+        if status == "maaf":
+            to_pay = Decimal("0.00")
+        else:
+            to_pay = sc.remaining
+            interest_to_pay += to_pay
+        weeks.append(
+            {
+                "num": i,
+                "due_date": sc.due_date,
+                "amount_due": Decimal(sc.amount_due or 0),
+                "to_pay": to_pay,
+                "status": status,
+            }
+        )
+
+    principal = Decimal(loan.principal_amount or 0)
+    capital_left = Decimal("0.00") if loan.capital_paid else Decimal(bal["remaining_principal"] or 0)
+    total_to_pay = interest_to_pay + capital_left
+
+    receipt = {
+        "principal": principal,
+        "capital_paid": bool(loan.capital_paid),
+        "capital_left": capital_left,
+        "interest_to_pay": interest_to_pay,
+        "total_to_pay": total_to_pay,
+        "week_count": len(weeks),
+        "issued": date.today(),
+    }
+    return render_template(
+        "loans/receipt.html",
+        loan=loan,
+        weeks=weeks,
+        receipt=receipt,
+    )
+
+
+@app.route("/loans/<int:loan_id>/mark-capital-paid", methods=["POST"])
+def loans_mark_capital_paid(loan_id):
+    """Admin marks capital as paid — only interest continues. UI shows Paid (not 0.00)."""
+    loan = Loan.query.get_or_404(loan_id)
+    if loan.status == "closed":
+        flash("This loan is closed.", "warning")
+        return redirect(url_for("loans_view", loan_id=loan.id))
+    if loan.capital_paid:
+        flash("Capital is already marked as paid.", "info")
+        return redirect(url_for("loans_view", loan_id=loan.id))
+
+    paid_date = parse_date(request.form.get("capital_paid_date"), date.today())
+    bal = loan_balances(loan)
+    remaining = Decimal(bal["remaining_principal"] or 0)
+
+    try:
+        if remaining > 0:
+            payment = Payment(
+                borrower_id=loan.borrower_id,
+                loan_id=loan.id,
+                payment_date=paid_date,
+                amount_received=remaining,
+                payment_method=request.form.get("pay_method", "cash") or "cash",
+                notes="Capital marked paid by admin",
+            )
+            db.session.add(payment)
+            db.session.flush()
+            db.session.add(
+                PaymentAllocation(
+                    payment_id=payment.id,
+                    allocation_type="principal",
+                    amount=remaining,
+                    scheduled_collection_id=None,
+                )
+            )
+            add_ledger(
+                loan.id,
+                "principal_repayment",
+                remaining,
+                f"Capital marked paid (cleared {remaining})",
+                txn_date=paid_date,
+                ref_type="payment",
+                ref_id=payment.id,
+            )
+
+        loan.capital_paid = True
+        loan.capital_paid_date = paid_date
+        db.session.add(
+            LoanAdjustment(
+                loan_id=loan.id,
+                adjustment_date=paid_date,
+                adjustment_type="note",
+                amount=remaining,
+                reason="Capital marked as paid by admin — interest only from now",
+            )
+        )
+        db.session.commit()
+        flash("Capital marked as Paid. Only interest continues now.", "success")
+    except Exception as exc:
+        db.session.rollback()
+        flash(f"Could not mark capital paid: {exc}", "danger")
+    return redirect(url_for("loans_view", loan_id=loan.id))
+
+
+@app.route("/loans/<int:loan_id>/unmark-capital-paid", methods=["POST"])
+def loans_unmark_capital_paid(loan_id):
+    """Undo capital-paid flag (does not reverse the payment record)."""
+    loan = Loan.query.get_or_404(loan_id)
+    if loan.status == "closed":
+        flash("This loan is closed.", "warning")
+        return redirect(url_for("loans_view", loan_id=loan.id))
+    loan.capital_paid = False
+    loan.capital_paid_date = None
+    db.session.commit()
+    flash("Capital Paid flag cleared. You can edit capital again.", "success")
+    return redirect(url_for("loans_view", loan_id=loan.id))
+
+
 @app.route("/loans/<int:loan_id>/topup", methods=["POST"])
 def loans_topup(loan_id):
     """Add more capital and/or weekly interest. Old weeks stay the same; new weeks use new total interest."""
@@ -1597,6 +1791,9 @@ def loans_topup(loan_id):
 
     if add_capital > 0:
         loan.principal_amount = old_principal + add_capital
+        # New capital means it's no longer fully paid
+        loan.capital_paid = False
+        loan.capital_paid_date = None
         db.session.add(
             LoanAdjustment(
                 loan_id=loan.id,
@@ -1644,6 +1841,100 @@ def loans_topup(loan_id):
             f"weekly interest +{add_interest} (now {loan.interest_amount}/week for new weeks)"
         )
     flash("Top-up saved: " + ", ".join(parts) + ".", "success")
+    return redirect(url_for("loans_view", loan_id=loan.id))
+
+
+def _delete_payment_record(payment):
+    """Fully remove a payment and undo week / ledger effects."""
+    loan_id = payment.loan_id
+    # Undo collection amounts first
+    for a in list(payment.allocations):
+        if a.scheduled_collection_id and not payment.is_reversal:
+            sc = ScheduledCollection.query.get(a.scheduled_collection_id)
+            if sc:
+                sc.amount_paid = max(
+                    Decimal(sc.amount_paid or 0) - Decimal(a.amount or 0),
+                    Decimal("0.00"),
+                )
+                if sc.status != "waived":
+                    sc.refresh_status()
+        elif a.scheduled_collection_id and payment.is_reversal:
+            # Reversal had reduced paid — put it back
+            sc = ScheduledCollection.query.get(a.scheduled_collection_id)
+            if sc:
+                sc.amount_paid = Decimal(sc.amount_paid or 0) + Decimal(a.amount or 0)
+                if sc.status != "waived":
+                    sc.refresh_status()
+        db.session.delete(a)
+
+    # Remove ledger rows tied to this payment
+    LoanTransaction.query.filter_by(reference_type="payment", reference_id=payment.id).delete()
+
+    # If this payment reversed another, nothing else needed beyond allocations undo
+    # If another payment reverses this one, delete that reversal too
+    child = Payment.query.filter_by(reverses_payment_id=payment.id, is_reversal=True).first()
+    if child:
+        _delete_payment_record(child)
+
+    db.session.delete(payment)
+    refresh_collection_statuses(loan_id)
+
+
+@app.route("/loans/<int:loan_id>/payments/<int:payment_id>/delete", methods=["POST"])
+def loans_delete_payment(loan_id, payment_id):
+    loan = Loan.query.get_or_404(loan_id)
+    payment = Payment.query.filter_by(id=payment_id, loan_id=loan.id).first_or_404()
+    try:
+        _delete_payment_record(payment)
+        db.session.commit()
+        flash("Payment deleted.", "success")
+    except Exception as exc:
+        db.session.rollback()
+        flash(f"Could not delete payment: {exc}", "danger")
+    return redirect(url_for("loans_view", loan_id=loan.id))
+
+
+@app.route("/loans/<int:loan_id>/topups/<int:adj_id>/delete", methods=["POST"])
+def loans_delete_topup(loan_id, adj_id):
+    """Delete a + capital / + interest top-up and undo its effect on the loan."""
+    loan = Loan.query.get_or_404(loan_id)
+    adj = LoanAdjustment.query.filter_by(id=adj_id, loan_id=loan.id).first_or_404()
+    if adj.adjustment_type not in ("capital_topup", "interest_topup"):
+        flash("Only capital / interest top-ups can be deleted here.", "danger")
+        return redirect(url_for("loans_view", loan_id=loan.id))
+
+    amount = Decimal(adj.amount or 0)
+    try:
+        if adj.adjustment_type == "capital_topup":
+            new_principal = Decimal(loan.principal_amount or 0) - amount
+            if new_principal < 0:
+                new_principal = Decimal("0.00")
+            loan.principal_amount = new_principal
+            # Remove matching disbursement ledger if present
+            LoanTransaction.query.filter(
+                LoanTransaction.loan_id == loan.id,
+                LoanTransaction.transaction_type == "disbursement",
+                LoanTransaction.amount == amount,
+                LoanTransaction.reference_type == "adjustment",
+            ).delete(synchronize_session=False)
+        elif adj.adjustment_type == "interest_topup":
+            new_interest = Decimal(loan.interest_amount or 0) - amount
+            if new_interest < 0:
+                new_interest = Decimal("0.00")
+            loan.interest_amount = new_interest
+            LoanTransaction.query.filter(
+                LoanTransaction.loan_id == loan.id,
+                LoanTransaction.transaction_type == "note",
+                LoanTransaction.amount == amount,
+                LoanTransaction.reference_type == "adjustment",
+            ).delete(synchronize_session=False)
+
+        db.session.delete(adj)
+        db.session.commit()
+        flash("Top-up deleted.", "success")
+    except Exception as exc:
+        db.session.rollback()
+        flash(f"Could not delete top-up: {exc}", "danger")
     return redirect(url_for("loans_view", loan_id=loan.id))
 
 
@@ -1745,6 +2036,31 @@ def loans_add_week(loan_id):
         loan.loan_date = parse_date(request.form.get("loan_date"), loan.loan_date)
     if "notes" in request.form:
         loan.notes = request.form.get("notes", "").strip() or None
+    # Editable capital (principal) — unless already marked capital paid
+    if "principal_amount" in request.form and not loan.capital_paid:
+        new_principal = money(request.form.get("principal_amount"), str(loan.principal_amount or 0))
+        old_principal = Decimal(loan.principal_amount or 0)
+        if new_principal > 0 and new_principal != old_principal:
+            diff = new_principal - old_principal
+            loan.principal_amount = new_principal
+            if diff > 0:
+                add_ledger(
+                    loan.id,
+                    "disbursement",
+                    diff,
+                    f"Principal edited (+{diff}). Now {new_principal}.",
+                    ref_type="loan",
+                    ref_id=loan.id,
+                )
+            else:
+                add_ledger(
+                    loan.id,
+                    "adjustment_credit",
+                    abs(diff),
+                    f"Principal edited ({diff}). Now {new_principal}.",
+                    ref_type="loan",
+                    ref_id=loan.id,
+                )
 
     # Save inline edits + status (paid / not paid / maaf)
     edit_ids = request.form.getlist("edit_week_id")
@@ -2647,19 +2963,50 @@ def payments_reverse(payment_id):
 # CLI / startup
 # ---------------------------------------------------------------------------
 
+def ensure_schema():
+    """Create tables and add any new columns missing on older DBs."""
+    db.create_all()
+    # Add capital_paid columns if upgrading an existing loans table
+    try:
+        with db.engine.begin() as conn:
+            rows = conn.exec_driver_sql("SHOW COLUMNS FROM loans LIKE 'capital_paid'").fetchall()
+            if not rows:
+                conn.exec_driver_sql(
+                    "ALTER TABLE loans ADD COLUMN capital_paid TINYINT(1) NOT NULL DEFAULT 0"
+                )
+            rows2 = conn.exec_driver_sql(
+                "SHOW COLUMNS FROM loans LIKE 'capital_paid_date'"
+            ).fetchall()
+            if not rows2:
+                conn.exec_driver_sql(
+                    "ALTER TABLE loans ADD COLUMN capital_paid_date DATE NULL"
+                )
+    except Exception:
+        # SQLite / first boot / no loans table yet — create_all handles it
+        pass
+
+
 @app.cli.command("init-db")
 def init_db():
     """Create all tables."""
-    db.create_all()
+    ensure_schema()
     print("Database tables created.")
 
 
 def create_tables():
     with app.app_context():
-        db.create_all()
+        ensure_schema()
+
+
+# Ensure columns exist under gunicorn too
+with app.app_context():
+    try:
+        ensure_schema()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
     with app.app_context():
-        db.create_all()
+        ensure_schema()
     app.run(host="0.0.0.0", port=5000, debug=Config.DEBUG)

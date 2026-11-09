@@ -1,31 +1,20 @@
 {% extends "base.html" %}
-{% block title %}Balance — TIA LOAN COMPANY{% endblock %}
+{% block title %}Balance — SYNERGY capital & Finance{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
-    <h1 class="page-title">Balance</h1>
-    <p class="page-sub">Collected money, extras in, and spending out</p>
+    <h1 class="page-title">Cash</h1>
+    <p class="page-sub">What came in and what went out</p>
   </div>
 </div>
 
-<div class="stat-grid cols-4">
-  <div class="stat-card is-ok">
-    <div class="label">Collected</div>
-    <div class="value money">+{{ collected|money }}</div>
-    <div class="hint">From loan payments</div>
-  </div>
-  <div class="stat-card is-ok">
-    <div class="label">Extra in</div>
-    <div class="value money">+{{ manual_in|money }}</div>
-  </div>
-  <div class="stat-card is-warn">
-    <div class="label">Spending</div>
-    <div class="value money">−{{ manual_out|money }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">Balance now</div>
-    <div class="value money">{{ balance|money }}</div>
-    <div class="hint">Collected + in − spending</div>
+<div class="cash-hero">
+  <div class="label">Balance now</div>
+  <div class="value money">{{ balance|money }}</div>
+  <div class="cash-hero-meta">
+    <span>Collected {{ collected|money }}</span>
+    <span>Extra +{{ manual_in|money }}</span>
+    <span>Spent −{{ manual_out|money }}</span>
   </div>
 </div>
 

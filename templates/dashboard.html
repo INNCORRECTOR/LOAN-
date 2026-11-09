@@ -1,55 +1,96 @@
 {% extends "base.html" %}
-{% block title %}Home — TIA LOAN COMPANY{% endblock %}
+{% block title %}Home — SYNERGY capital & Finance{% endblock %}
 {% block content %}
 <div class="hello">
   <p class="eyebrow">This week · {{ stats.week_start }} → {{ stats.week_end }}</p>
-  <h1>TIA LOAN COMPANY</h1>
+  <h1>Collect</h1>
 </div>
 
-<div class="stat-grid cols-3">
-  <a class="stat-card is-featured" href="{{ url_for('collections_report') }}">
-    <div>
-      <div class="label">Collected this week</div>
-      <div class="value money">{{ stats.actual_week|money }}</div>
-    </div>
-    <div>
-      <div class="soft-meter" aria-hidden="true"><span style="width: {{ stats.collected_pct }}%"></span></div>
-      <div class="hint-link">View by date →</div>
-    </div>
+<div class="home-strip cols-4">
+  <a class="home-strip-item" href="{{ url_for('collections_report') }}">
+    <span class="label">Collected</span>
+    <span class="value money">{{ stats.actual_week|money }}</span>
   </a>
-
-  <a class="stat-card" href="{{ url_for('collections_report') }}">
-    <div class="label">Expected this week</div>
-    <div class="value money">{{ stats.expected_week|money }}</div>
-    <div class="hint-link">Open date range →</div>
+  <a class="home-strip-item" href="{{ url_for('collections_report') }}">
+    <span class="label">Expected</span>
+    <span class="value money">{{ stats.expected_week|money }}</span>
   </a>
-
-  <div class="stat-card is-warn">
-    <div class="label">Overdue</div>
-    <div class="value money">{{ stats.total_overdue|money }}</div>
-    <div class="hint">Still unpaid past due</div>
-  </div>
-
-  <div class="stat-card">
-    <div class="label">Active loans</div>
-    <div class="value">{{ stats.active_loans }}</div>
-  </div>
-
-  <div class="stat-card">
-    <div class="label">Total principal</div>
-    <div class="value money">{{ stats.total_capital|money }}</div>
-  </div>
-
-  <div class="stat-card">
-    <div class="label">Outstanding interest</div>
-    <div class="value money">{{ stats.outstanding_interest|money }}</div>
+  <a class="home-strip-item" href="{{ url_for('loans_list') }}">
+    <span class="label">Capital</span>
+    <span class="value money">{{ stats.total_capital|money }}</span>
+  </a>
+  <div class="home-strip-item is-warn">
+    <span class="label">Overdue</span>
+    <span class="value money">{{ stats.total_overdue|money }}</span>
   </div>
 </div>
 
-<div class="page-actions">
-  <a href="{{ url_for('loans_add') }}" class="btn btn-primary">Add borrower</a>
-  <a href="{{ url_for('loans_list') }}" class="btn btn-outline-secondary">All loans</a>
-  <a href="{{ url_for('balance_page') }}" class="btn btn-outline-secondary">Balance</a>
-  <a href="{{ url_for('backup_excel') }}" class="btn btn-outline-secondary" data-confirm="Do you want to download the Excel backup?">Download Excel backup</a>
+<section class="home-section">
+  <div class="home-section-head">
+    <h2>Due today</h2>
+    <span class="home-count">{{ due_today|length }}</span>
+  </div>
+  {% if due_today %}
+  <div class="collect-list">
+    {% for row in due_today %}
+    {% set wa = row.phone|whatsapp_url %}
+    <div class="collect-row">
+      <a class="collect-main" href="{{ url_for('loans_view', loan_id=row.loan_id) }}">
+        <div class="collect-who">
+          <div class="collect-name">{{ row.name }}</div>
+          <div class="collect-meta">{% if row.phone %}{{ row.phone }}{% else %}Tap to open{% endif %}</div>
+        </div>
+        <div class="collect-amt money">{{ row.amount|money }}</div>
+      </a>
+      {% if wa %}
+      <a class="wa-btn" href="{{ wa }}" target="_blank" rel="noopener" title="WhatsApp {{ row.phone }}">
+        <img src="{{ url_for('static', filename='logo/WhatsApp.svg.webp') }}" alt="WhatsApp">
+      </a>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="home-empty">Nobody due today.</div>
+  {% endif %}
+</section>
+
+<section class="home-section">
+  <div class="home-section-head">
+    <h2>Overdue</h2>
+    <span class="home-count {% if overdue %}is-warn{% endif %}">{{ overdue|length }}</span>
+  </div>
+  {% if overdue %}
+  <div class="collect-list">
+    {% for row in overdue %}
+    {% set wa = row.phone|whatsapp_url %}
+    <div class="collect-row is-overdue">
+      <a class="collect-main" href="{{ url_for('loans_view', loan_id=row.loan_id) }}">
+        <div class="collect-who">
+          <div class="collect-name">{{ row.name }}</div>
+          <div class="collect-meta">
+            Since {{ row.due_date }}
+            {% if row.weeks > 1 %} · {{ row.weeks }} weeks{% endif %}
+          </div>
+        </div>
+        <div class="collect-amt money">{{ row.amount|money }}</div>
+      </a>
+      {% if wa %}
+      <a class="wa-btn" href="{{ wa }}" target="_blank" rel="noopener" title="WhatsApp {{ row.phone }}">
+        <img src="{{ url_for('static', filename='logo/WhatsApp.svg.webp') }}" alt="WhatsApp">
+      </a>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="home-empty">No overdue weeks.</div>
+  {% endif %}
+</section>
+
+<div class="home-links">
+  <a href="{{ url_for('loans_list') }}">All people</a>
+  <a href="{{ url_for('balance_page') }}">Cash balance</a>
+  <a href="{{ url_for('collections_report') }}">Week stats</a>
 </div>
 {% endblock %}

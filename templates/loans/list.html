@@ -1,41 +1,30 @@
 {% extends "base.html" %}
-{% block title %}Loans — TIA LOAN COMPANY{% endblock %}
+{% block title %}Loans — SYNERGY capital & Finance{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
-    <h1 class="page-title">Loans</h1>
-    <p class="page-sub">Everyone who took a loan</p>
+    <h1 class="page-title">People</h1>
+    <p class="page-sub">Find someone and open their loan</p>
   </div>
   <div class="page-actions">
     <div class="view-toggle" role="group" aria-label="View mode">
       <a class="view-toggle-btn {% if view == 'cards' %}active{% endif %}"
-         href="{{ url_for('loans_list', view='cards', q=q or None, status=status if status != 'all' else None) }}"
-         title="Card swipe view">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="5" width="12" height="14" rx="2"/><path d="M18 8v10M21 10v6"/></svg>
+         href="{{ url_for('loans_list', view='cards', q=q or None, status=status if status != 'all' else None) }}">
         Cards
       </a>
       <a class="view-toggle-btn {% if view != 'cards' %}active{% endif %}"
-         href="{{ url_for('loans_list', view='list', q=q or None, status=status if status != 'all' else None) }}"
-         title="List view">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
-        List
+         href="{{ url_for('loans_list', view='list', q=q or None, status=status if status != 'all' else None) }}">
+        Boxes
       </a>
     </div>
-    <a href="{{ url_for('loans_add') }}" class="btn btn-primary">Add borrower</a>
+    <a href="{{ url_for('loans_add') }}" class="btn btn-primary">Add</a>
   </div>
 </div>
 
-<form class="card-panel" method="get">
+<form class="search-bar" method="get">
   <input type="hidden" name="view" value="{{ view }}">
-  <div class="form-row cols-2" style="align-items:end">
-    <div>
-      <label class="form-label">Search</label>
-      <input type="search" name="q" value="{{ q }}" class="form-control" placeholder="Name or phone">
-    </div>
-    <div class="action-row" style="margin-top:0">
-      <button class="btn btn-outline-secondary" type="submit">Search</button>
-    </div>
-  </div>
+  <input type="search" name="q" value="{{ q }}" class="form-control" placeholder="Search name or phone" aria-label="Search">
+  <button class="btn btn-outline-secondary" type="submit">Go</button>
 </form>
 
 {% if view == 'cards' %}
@@ -57,7 +46,11 @@
             <div class="paper-avatar">{{ loan.borrower.name[:1]|upper }}</div>
             <div>
               <h2 class="paper-name">{{ loan.borrower.name }}</h2>
-              <p class="paper-sub">{{ loan.borrower.phone or 'No phone' }} · <span class="badge text-bg-{{ loan.status|status_badge }}">{{ loan.status }}</span></p>
+              <p class="paper-sub">
+                {{ loan.borrower.phone or 'No phone' }}
+                · <span class="badge text-bg-{{ loan.status|status_badge }}">{{ loan.status }}</span>
+                {% if loan.capital_paid %} · <span class="badge text-bg-success">Capital paid</span>{% endif %}
+              </p>
             </div>
           </div>
           <div class="paper-grid">
@@ -107,43 +100,28 @@
   </div>
   {% endif %}
 {% else %}
-<div class="card-panel tight">
-  <div class="table-responsive">
-    <table class="table table-hover align-middle">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Phone</th>
-          <th>Principal</th>
-          <th>Interest / week</th>
-          <th>Status</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for loan in loans %}
-        <tr>
-          <td><a href="{{ url_for('loans_view', loan_id=loan.id) }}"><strong>{{ loan.borrower.name }}</strong></a></td>
-          <td>{{ loan.borrower.phone or '—' }}</td>
-          <td class="money">{{ loan.principal_amount|money }}</td>
-          <td class="money">{{ loan.interest_amount|money }}</td>
-          <td><span class="badge text-bg-{{ loan.status|status_badge }}">{{ loan.status }}</span></td>
-          <td class="text-end text-nowrap">
-            <a href="{{ url_for('loans_view', loan_id=loan.id) }}" class="btn btn-sm btn-primary">Open</a>
-            <form method="post" action="{{ url_for('loans_delete', loan_id=loan.id) }}" class="d-inline">
-              <button class="btn btn-sm btn-outline-danger" data-confirm="Delete this person and their loan?">Delete</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="6" class="empty-state">No loans yet. <a href="{{ url_for('loans_add') }}">Add borrower</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  {% if card_rows %}
+  <div class="loan-box-grid">
+    {% for row in card_rows %}
+    {% set loan = row.loan %}
+    <a class="loan-box {% if loan.capital_paid %}is-paid{% elif loan.status == 'closed' %}is-closed{% else %}is-open{% endif %}"
+       href="{{ url_for('loans_view', loan_id=loan.id) }}">
+      <span class="loan-box-dot" aria-hidden="true"></span>
+      <div class="loan-box-name">{{ loan.borrower.name }}</div>
+      <div class="loan-box-owed money">
+        {% if loan.capital_paid %}Paid{% else %}{{ row.outstanding|money }}{% endif %}
+      </div>
+      <div class="loan-box-week">
+        {% if row.next_due %}{{ row.next_due }}{% else %}—{% endif %}
+      </div>
+    </a>
+    {% endfor %}
   </div>
-</div>
+  {% else %}
+  <div class="card-panel">
+    <div class="empty-state">No loans yet. <a href="{{ url_for('loans_add') }}">Add borrower</a></div>
+  </div>
+  {% endif %}
 {% endif %}
 {% endblock %}
 
