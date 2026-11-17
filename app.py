@@ -645,14 +645,33 @@ def dashboard():
             cuts = weekly
         interest_all += weekly
         interest_investors += cuts
-        capital_all += principal
-        capital_investors += marked
+        # Capital paid stays out of capital totals; Mark as done also removes from Active
+        if not loan.capital_paid:
+            capital_all += principal
+            capital_investors += marked
         active_users.append(
             {
                 "loan_id": loan.id,
                 "name": loan.borrower.name,
                 "phone": loan.borrower.phone or "",
                 "amount": Decimal(loan.principal_amount or 0),
+            }
+        )
+    done_users = []
+    done_loans = (
+        Loan.query.join(Borrower)
+        .filter(Loan.status == "closed")
+        .order_by(Borrower.name.asc())
+        .all()
+    )
+    for loan in done_loans:
+        done_users.append(
+            {
+                "loan_id": loan.id,
+                "name": loan.borrower.name,
+                "phone": loan.borrower.phone or "",
+                "amount": Decimal(loan.principal_amount or 0),
+                "capital_paid": bool(loan.capital_paid),
             }
         )
     interest_ours = max(interest_all - interest_investors, Decimal("0"))
@@ -690,6 +709,7 @@ def dashboard():
         overdue=overdue,
         active_users=active_users,
         active_overview=active_overview,
+        done_users=done_users,
     )
 
 
@@ -2630,6 +2650,35 @@ def loans_close(loan_id):
     return redirect(url_for("loans_list"))
 
 
+@app.route("/loans/<int:loan_id>/mark-done", methods=["POST"])
+def loans_mark_done(loan_id):
+    """Remove from Active after capital is paid. Keeps all history — no delete."""
+    loan = Loan.query.get_or_404(loan_id)
+    if loan.status == "closed":
+        flash("Already marked as done.", "warning")
+        return redirect(url_for("loans_view", loan_id=loan.id))
+    if not loan.capital_paid:
+        flash("Mark capital as paid first, then you can remove from Active.", "warning")
+        return redirect(url_for("loans_view", loan_id=loan.id))
+    loan.status = "closed"
+    db.session.commit()
+    flash("Marked as done. Removed from Active and capital.", "success")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/loans/<int:loan_id>/undo-done", methods=["POST"])
+def loans_undo_done(loan_id):
+    """Put a done loan back on Active (still no delete)."""
+    loan = Loan.query.get_or_404(loan_id)
+    if loan.status != "closed":
+        flash("This person is not marked as done.", "warning")
+        return redirect(url_for("loans_view", loan_id=loan.id))
+    loan.status = "active"
+    db.session.commit()
+    flash("Back on Active.", "success")
+    return redirect(url_for("loans_view", loan_id=loan.id))
+
+
 @app.route("/loans/<int:loan_id>/delete", methods=["POST"])
 def loans_delete(loan_id):
     loan = Loan.query.get_or_404(loan_id)
@@ -3394,6 +3443,29 @@ def investors_list():
         cards=cards,
         office={"ours": ours, "investor": investor_total},
     )
+
+
+@app.route("/investors/<int:investor_id>/name", methods=["POST"])
+def investors_update_name(investor_id):
+    """Admin-only rename (route is behind admin session)."""
+    investor = Investor.query.get_or_404(investor_id)
+    name = request.form.get("name", "").strip()
+    if not name:
+        flash("Investor name is required.", "danger")
+        return redirect(url_for("investors_list"))
+    exists = (
+        Investor.query.filter(
+            db.func.lower(Investor.name) == name.lower(),
+            Investor.id != investor.id,
+        ).first()
+    )
+    if exists:
+        flash(f"{exists.name} is already an investor.", "warning")
+        return redirect(url_for("investors_list"))
+    investor.name = name
+    db.session.commit()
+    flash(f"Investor name saved as {name}.", "success")
+    return redirect(url_for("investors_list"))
 
 
 @app.route("/investors/<int:investor_id>/passes", methods=["POST"])

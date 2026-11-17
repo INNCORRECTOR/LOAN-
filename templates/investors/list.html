@@ -49,6 +49,14 @@
       {% endif %}
     </div>
 
+    <form class="investor-name-edit" method="post" action="{{ url_for('investors_update_name', investor_id=card.investor.id) }}">
+      <label class="form-label">Name</label>
+      <div class="investor-name-row">
+        <input class="form-control form-control-sm" name="name" value="{{ card.investor.name }}" maxlength="150" required>
+        <button class="btn btn-sm btn-outline-secondary" type="submit">Save name</button>
+      </div>
+    </form>
+
     <form class="investor-pass-edit" method="post" action="{{ url_for('investors_update_passes', investor_id=card.investor.id) }}">
       <div class="form-row cols-2">
         <div>

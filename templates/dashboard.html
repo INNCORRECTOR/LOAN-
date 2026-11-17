@@ -157,6 +157,30 @@
   {% endif %}
 </section>
 
+<section class="home-section">
+  <div class="home-section-head">
+    <h2>Done</h2>
+    <span class="home-count">{{ done_users|length }}</span>
+  </div>
+  {% if done_users %}
+  <div class="collect-list">
+    {% for row in done_users %}
+    <div class="collect-row">
+      <a class="collect-main" href="{{ url_for('loans_view', loan_id=row.loan_id) }}">
+        <div class="collect-who">
+          <div class="collect-name">{{ row.name }}</div>
+          <div class="collect-meta">{% if row.capital_paid %}Capital paid · {% endif %}Removed from Active</div>
+        </div>
+        <div class="collect-amt money">{{ row.amount|money }}</div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="home-empty">Nobody marked as done yet.</div>
+  {% endif %}
+</section>
+
 <div class="home-links">
   <a href="{{ url_for('loans_list') }}">All people</a>
   <a href="{{ url_for('investors_list') }}">Investors</a>

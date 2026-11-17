@@ -1629,6 +1629,16 @@ body.no-dock #app-shell { padding-bottom: 2rem; }
 .investor-stakes { display: grid; gap: 0.65rem; margin-bottom: 0.9rem; }
 .investor-stake,
 .investor-card { min-width: 0; }
+.investor-name-edit {
+  margin: 0.65rem 0 0;
+}
+.investor-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+.investor-name-row .form-control { flex: 1 1 160px; min-width: 0; }
 .investor-pass-edit {
   margin: 0.75rem 0 0.35rem;
   padding-top: 0.65rem;
