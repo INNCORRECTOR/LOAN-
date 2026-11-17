@@ -1,5 +1,62 @@
+window.showToast = function (message, category) {
+  var stack = document.getElementById("toastStack");
+  if (!stack) {
+    stack = document.createElement("div");
+    stack.className = "toast-stack";
+    stack.id = "toastStack";
+    stack.setAttribute("aria-live", "polite");
+    document.body.appendChild(stack);
+  }
+  var toast = document.createElement("div");
+  toast.className = "app-toast is-" + (category || "success");
+  toast.setAttribute("role", "status");
+  var text = document.createElement("span");
+  text.textContent = message;
+  var close = document.createElement("button");
+  close.type = "button";
+  close.className = "toast-close";
+  close.setAttribute("aria-label", "Close");
+  close.innerHTML = "&times;";
+  close.addEventListener("click", function () {
+    dismiss(toast);
+  });
+  toast.appendChild(text);
+  toast.appendChild(close);
+  stack.appendChild(toast);
+  setTimeout(function () {
+    dismiss(toast);
+  }, 4500);
+
+  function dismiss(el) {
+    if (!el || el.classList.contains("is-hiding")) return;
+    el.classList.add("is-hiding");
+    setTimeout(function () {
+      el.remove();
+    }, 260);
+  }
+};
+
 document.addEventListener("DOMContentLoaded", function () {
   document.body.classList.add("is-loaded");
+
+  // Server messages arrive as toasts — auto-close them too.
+  document.querySelectorAll("#toastStack .app-toast").forEach(function (toast) {
+    var close = toast.querySelector(".toast-close");
+    if (close) {
+      close.addEventListener("click", function () {
+        toast.classList.add("is-hiding");
+        setTimeout(function () {
+          toast.remove();
+        }, 260);
+      });
+    }
+    setTimeout(function () {
+      toast.classList.add("is-hiding");
+      setTimeout(function () {
+        toast.remove();
+      }, 260);
+    }, 4500);
+  });
 
   var toggle = document.getElementById("sidebarToggle");
   var sidebar = document.getElementById("sidebar");

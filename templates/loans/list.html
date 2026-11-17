@@ -63,6 +63,10 @@
               <div class="value money">{{ loan.interest_amount|money }}</div>
             </div>
             <div>
+              <div class="label">Interest to pay</div>
+              <div class="value money">{{ row.interest_to_pay|money }}</div>
+            </div>
+            <div>
               <div class="label">Paid</div>
               <div class="value money">{{ row.paid|money }}</div>
             </div>
@@ -111,6 +115,7 @@
       <div class="loan-box-owed money">
         {% if loan.capital_paid %}Paid{% else %}{{ row.outstanding|money }}{% endif %}
       </div>
+      <div class="loan-box-interest money">Interest {{ row.interest_to_pay|money }}</div>
       <div class="loan-box-week">
         {% if row.next_due %}{{ row.next_due }}{% else %}—{% endif %}
       </div>

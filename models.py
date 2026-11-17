@@ -70,6 +70,9 @@ class Loan(db.Model):
     adjustments = db.relationship(
         "LoanAdjustment", back_populates="loan", lazy="dynamic", cascade="all, delete-orphan"
     )
+    investments = db.relationship(
+        "LoanInvestor", back_populates="loan", lazy="dynamic", cascade="all, delete-orphan"
+    )
 
     def scheduled_interest_amount(self):
         """Interest due per collection period based on current loan settings."""
@@ -246,6 +249,53 @@ class LoanAdjustment(db.Model):
 
     def __repr__(self):
         return f"<LoanAdjustment {self.id} {self.adjustment_type}>"
+
+
+class Investor(db.Model):
+    """Person whose money is placed into loan capital."""
+
+    __tablename__ = "investors"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(150), nullable=False, index=True)
+    notes = db.Column(db.String(255), nullable=True)
+    # Two-number login (same style as office / borrower form)
+    pass_one = db.Column(db.String(64), nullable=True)
+    pass_two = db.Column(db.String(64), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    stakes = db.relationship("LoanInvestor", back_populates="investor", lazy="dynamic")
+
+    def __repr__(self):
+        return f"<Investor {self.id} {self.name}>"
+
+
+class LoanInvestor(db.Model):
+    """How much of one loan's capital belongs to one investor, and their weekly profit."""
+
+    __tablename__ = "loan_investors"
+    __table_args__ = (
+        UniqueConstraint("loan_id", "investor_id", name="uq_loan_investor"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    loan_id = db.Column(
+        db.Integer, db.ForeignKey("loans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    investor_id = db.Column(
+        db.Integer, db.ForeignKey("investors.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    amount = db.Column(db.Numeric(14, 2), nullable=False)
+    weekly_cut = db.Column(db.Numeric(14, 2), nullable=False, default=Decimal("0.00"))
+    # Money already handed to this investor for this stake
+    paid_out = db.Column(db.Numeric(14, 2), nullable=False, default=Decimal("0.00"))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    loan = db.relationship("Loan", back_populates="investments")
+    investor = db.relationship("Investor", back_populates="stakes")
+
+    def __repr__(self):
+        return f"<LoanInvestor loan={self.loan_id} investor={self.investor_id} {self.amount}>"
 
 
 class BalanceEntry(db.Model):

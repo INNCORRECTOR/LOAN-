@@ -1,9 +1,14 @@
 {% extends "base.html" %}
 {% block title %}{{ loan.borrower.name }} — SYNERGY capital & Finance{% endblock %}
 {% block content %}
+{% set can_edit = is_admin and loan.status != 'closed' %}
 <div class="page-head person-head">
   <div>
+    {% if is_admin %}
     <a class="back-link" href="{{ url_for('loans_list') }}">← People</a>
+    {% elif is_borrower %}
+    <a class="back-link" href="{{ url_for('borrower_home', list=1) }}">← My loans</a>
+    {% endif %}
     <h1 class="page-title">{{ loan.borrower.name }}</h1>
     <p class="page-sub">
       {% if loan.borrower.phone %}{{ loan.borrower.phone }} · {% endif %}
@@ -16,20 +21,21 @@
   </div>
   <div class="page-actions">
     {% set wa = loan.borrower.phone|whatsapp_url %}
-    {% if wa %}
+    {% if is_admin and wa %}
     <a class="wa-btn wa-btn-lg" href="{{ wa }}" target="_blank" rel="noopener" title="WhatsApp">
       <img src="{{ url_for('static', filename='logo/WhatsApp.svg.webp') }}" alt="WhatsApp">
     </a>
     {% endif %}
     <a href="{{ url_for('loans_receipt', loan_id=loan.id) }}" class="btn btn-primary btn-sm">Receipt</a>
+    {% if is_admin %}
     <details class="more-menu">
       <summary class="btn btn-outline-secondary btn-sm">More</summary>
       <div class="more-menu-panel">
-        {% if loan.status != 'closed' and not loan.capital_paid %}
+        {% if can_edit and not loan.capital_paid %}
         <form method="post" action="{{ url_for('loans_mark_capital_paid', loan_id=loan.id) }}">
           <button class="more-menu-btn" data-confirm="Mark capital as Paid? After this, only interest continues.">Mark capital paid</button>
         </form>
-        {% elif loan.status != 'closed' and loan.capital_paid %}
+        {% elif can_edit and loan.capital_paid %}
         <form method="post" action="{{ url_for('loans_unmark_capital_paid', loan_id=loan.id) }}">
           <button class="more-menu-btn" data-confirm="Clear Capital Paid flag?">Undo capital paid</button>
         </form>
@@ -39,6 +45,7 @@
         </form>
       </div>
     </details>
+    {% endif %}
   </div>
 </div>
 
@@ -46,6 +53,10 @@
   <div class="person-summary-item">
     <span class="label">Still owed</span>
     <span class="value money">{{ summary.interest_plus_principal|money }}</span>
+  </div>
+  <div class="person-summary-item">
+    <span class="label">Interest to pay</span>
+    <span class="value money">{{ summary.interest_left|money }}</span>
   </div>
   <div class="person-summary-item">
     <span class="label">Capital</span>
@@ -65,7 +76,83 @@
   </div>
 </div>
 
-{% if loan.status != 'closed' %}
+{% if is_admin %}
+<section class="card-panel investor-panel">
+  <div class="panel-head">
+    <h2 class="section-title">Investor money</h2>
+  </div>
+  <div class="borrower-figures">
+    <div class="borrower-figure">
+      <span class="label">Investor</span>
+      <span class="value money">{{ investor_invested|rupees }}</span>
+    </div>
+    <div class="borrower-figure">
+      <span class="label">Ours</span>
+      <span class="value money">{{ investor_room|rupees }}</span>
+    </div>
+  </div>
+  <p class="section-help">Capital is {{ summary.principal|rupees }}. {{ investor_invested|rupees }} is investor money. {{ investor_room|rupees }} is ours.</p>
+  {% if stakes %}
+  <p class="section-help">Every week: interest {{ loan.interest_amount|rupees }} — investor cut {{ investor_weekly_cut|rupees }}, ours {{ investor_our_weekly_cut|rupees }}. The cut repeats every week: 500 this week, 500 next week, and so on.</p>
+  {% endif %}
+  {% if stakes %}
+  <div class="investor-stakes">
+    {% for stake in stakes %}
+    <div class="investor-stake">
+      <div class="investor-stake-top">
+        <div class="collect-name">{{ stake.investor.name }}</div>
+        <form method="post" action="{{ url_for('loans_investor_delete', loan_id=loan.id, stake_id=stake.id) }}">
+          <button class="btn btn-sm btn-outline-danger" type="submit" data-confirm="Remove this investor money?">Remove</button>
+        </form>
+      </div>
+      <form class="investor-cut" method="post" action="{{ url_for('loans_investor_amount', loan_id=loan.id, stake_id=stake.id) }}">
+        <label class="form-label" for="amount-{{ stake.id }}">Investor amount</label>
+        <div class="investor-cut-row">
+          <input id="amount-{{ stake.id }}" class="form-control" type="number" step="1" min="1" name="amount" value="{{ stake.amount|rupee_input }}" required inputmode="numeric">
+          <button class="btn btn-primary btn-sm" type="submit">Save</button>
+        </div>
+      </form>
+      <form class="investor-cut" method="post" action="{{ url_for('loans_investor_cut', loan_id=loan.id, stake_id=stake.id) }}">
+        <label class="form-label" for="cut-{{ stake.id }}">Investor cut / week</label>
+        <div class="investor-cut-row">
+          <input id="cut-{{ stake.id }}" class="form-control" type="number" step="1" min="0" name="weekly_cut" value="{{ stake.weekly_cut|rupee_input }}" inputmode="numeric">
+          <button class="btn btn-primary btn-sm" type="submit">Save cut</button>
+        </div>
+        <p class="form-text">This much every week, again and again on each collected week. The rest of the week interest is ours.</p>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if investor_choices %}
+  <form class="investor-add" method="post" action="{{ url_for('loans_add_investor', loan_id=loan.id) }}">
+    <div class="form-row">
+      <div>
+        <label class="form-label" for="investor-id">Add investor</label>
+        <select id="investor-id" class="form-select" name="investor_id" required>
+          <option value="">Choose</option>
+          {% for inv in investor_choices %}
+          <option value="{{ inv.id }}">{{ inv.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label" for="investor-amount">Investor amount</label>
+        <input id="investor-amount" class="form-control" type="number" step="1" min="1" name="amount" required placeholder="1000" inputmode="numeric">
+      </div>
+    </div>
+    <div class="action-row">
+      <button class="btn btn-primary" type="submit">Add investor</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="section-help">Add an investor name first, then mark their amount here.</p>
+  <a class="btn btn-primary btn-sm" href="{{ url_for('investors_list') }}">Investors</a>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if can_edit %}
 <div class="fold-panel block-pay" data-fold>
   <button type="button" class="fold-trigger" aria-expanded="false">
     <span class="fold-title">− Pay</span>
@@ -168,7 +255,7 @@
             <td class="money">+{{ t.amount|money }}</td>
             <td class="text-muted">{{ t.reason or '—' }}</td>
             <td class="text-end">
-              {% if loan.status != 'closed' %}
+              {% if can_edit %}
               <form method="post" action="{{ url_for('loans_delete_topup', loan_id=loan.id, adj_id=t.id) }}" class="d-inline">
                 <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Delete this + Add top-up? Capital/interest will be reduced.">Delete</button>
               </form>
@@ -233,7 +320,7 @@
             <td>{{ p.payment_method }}</td>
             <td>{{ p.notes or '—' }}{% if p.is_reversal %} <span class="badge text-bg-warning">reversal</span>{% endif %}</td>
             <td class="text-end">
-              {% if loan.status != 'closed' %}
+              {% if can_edit %}
               <form method="post" action="{{ url_for('loans_delete_payment', loan_id=loan.id, payment_id=p.id) }}" class="d-inline">
                 <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Delete this payment? Week paid amounts will be undone.">Delete</button>
               </form>
@@ -255,11 +342,11 @@
     <div class="form-row cols-2 mt-3">
       <div>
         <label class="form-label">Name</label>
-        <input type="text" name="name" class="form-control" value="{{ loan.borrower.name }}" {% if loan.status == 'closed' %}disabled{% endif %}>
+        <input type="text" name="name" class="form-control" value="{{ loan.borrower.name }}" {% if not can_edit %}disabled{% endif %}>
       </div>
       <div>
         <label class="form-label">Phone</label>
-        <input type="text" name="phone" class="form-control" value="{{ loan.borrower.phone or '' }}" {% if loan.status == 'closed' %}disabled{% endif %}>
+        <input type="text" name="phone" class="form-control" value="{{ loan.borrower.phone or '' }}" {% if not can_edit %}disabled{% endif %}>
       </div>
       <div>
         <label class="form-label">Capital (principal)</label>
@@ -267,20 +354,20 @@
         <input type="text" class="form-control" value="Paid" disabled>
         <div class="form-text">Original {{ loan.principal_amount }} · marked paid{% if loan.capital_paid_date %} on {{ loan.capital_paid_date }}{% endif %}</div>
         {% else %}
-        <input type="number" step="0.01" min="0.01" name="principal_amount" class="form-control" value="{{ loan.principal_amount }}" {% if loan.status == 'closed' %}disabled{% endif %}>
+        <input type="number" step="0.01" min="0.01" name="principal_amount" class="form-control" value="{{ loan.principal_amount }}" {% if not can_edit %}disabled{% endif %}>
         {% endif %}
       </div>
       <div>
         <label class="form-label">Interest / week (new weeks)</label>
-        <input type="number" step="0.01" min="0" name="interest_amount" id="interest_amount" class="form-control" value="{{ loan.interest_amount or 0 }}" {% if loan.status == 'closed' %}disabled{% endif %}>
+        <input type="number" step="0.01" min="0" name="interest_amount" id="interest_amount" class="form-control" value="{{ loan.interest_amount or 0 }}" {% if not can_edit %}disabled{% endif %}>
       </div>
       <div>
         <label class="form-label">Loan taken date</label>
-        <input type="date" name="loan_date" class="form-control" value="{{ loan.loan_date }}" {% if loan.status == 'closed' %}disabled{% endif %}>
+        <input type="date" name="loan_date" class="form-control" value="{{ loan.loan_date }}" {% if not can_edit %}disabled{% endif %}>
       </div>
       <div>
         <label class="form-label">Notes</label>
-        <input type="text" name="notes" class="form-control" value="{{ loan.notes or '' }}" placeholder="Optional notes" {% if loan.status == 'closed' %}disabled{% endif %}>
+        <input type="text" name="notes" class="form-control" value="{{ loan.notes or '' }}" placeholder="Optional notes" {% if not can_edit %}disabled{% endif %}>
       </div>
     </div>
 
@@ -289,9 +376,9 @@
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
       <div>
         <h2 class="section-title mb-0">Payment weeks</h2>
-        <p class="section-help mb-0">One card per week. Change date / amounts, then Save.</p>
+        <p class="section-help mb-0">{% if can_edit %}One card per week. Change date / amounts, then Save.{% else %}Your payment weeks.{% endif %}</p>
       </div>
-      {% if loan.status != 'closed' %}
+      {% if can_edit %}
       <button type="button" class="btn btn-outline-secondary btn-sm add-week-btn" id="addWeekBtn">+ Add week</button>
       {% endif %}
     </div>
@@ -312,14 +399,14 @@
           <span class="week-status-pill is-not-paid">Not paid</span>
           {% endif %}
           <div class="week-total-wrap">Total <strong class="week-total">{{ c.amount_due|money }}</strong></div>
-          {% if loan.status != 'closed' %}
+          {% if can_edit %}
           <button type="submit" class="btn btn-sm btn-outline-danger" formnovalidate
                   formaction="{{ url_for('collection_delete', collection_id=c.id) }}"
                   formmethod="post"
                   data-confirm="Delete this week?">Delete</button>
           {% endif %}
         </div>
-        {% if loan.status != 'closed' %}
+        {% if can_edit %}
         <input type="hidden" name="edit_week_id" value="{{ c.id }}">
         <div class="week-fields">
           <div class="week-field week-field-date">
@@ -368,7 +455,7 @@
       No weeks yet. Tap <strong>+ Add week</strong>.
     </p>
 
-    {% if loan.status != 'closed' %}
+    {% if can_edit %}
     <div class="action-row weeks-bottom-actions">
       <button type="button" class="btn btn-outline-secondary add-week-btn" id="addWeekBtnBottom">+ Add week</button>
       <button type="submit" class="btn btn-primary" name="action" value="save">Save</button>
@@ -379,8 +466,8 @@
 {% endblock %}
 
 {% block scripts %}
-{% if loan.status != 'closed' %}
-<script src="{{ url_for('static', filename='js/weeks.js') }}?v=7"></script>
+{% if is_admin and loan.status != 'closed' %}
+<script src="{{ url_for('static', filename='js/weeks.js') }}?v=9"></script>
 <script>
 (function () {
   var lastDate = null;

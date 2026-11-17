@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from calendar import monthrange
+from hmac import compare_digest
 from io import BytesIO
 
 from flask import (
@@ -10,6 +11,7 @@ from flask import (
     render_template,
     request,
     send_file,
+    session,
     url_for,
 )
 from config import Config
@@ -22,6 +24,8 @@ from models import (
     LoanTransaction,
     LoanAdjustment,
     BalanceEntry,
+    Investor,
+    LoanInvestor,
     db,
     loan_balances,
     week_bounds,
@@ -35,7 +39,203 @@ db.init_app(app)
 
 @app.context_processor
 def inject_globals():
-    return {"now": date.today().isoformat()}
+    role = session.get("role")
+    return {
+        "now": date.today().isoformat(),
+        "is_admin": role == "admin",
+        "is_borrower": role == "borrower",
+        "is_investor": role == "investor",
+    }
+
+
+def _digits(value):
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+def _same_secret(given, expected):
+    if not expected:
+        return False
+    return compare_digest(str(given), str(expected))
+
+
+def _find_borrower_login(phone_input, code_input):
+    """Pass 1 is the phone number. Pass 2 is the last 5 digits of that number."""
+    entered = _digits(phone_input)
+    code = _digits(code_input)
+    if len(entered) < 5 or len(code) != 5:
+        return None
+    matches = []
+    for person in Borrower.query.filter(Borrower.phone.isnot(None)).all():
+        stored = _digits(person.phone)
+        if len(stored) < 5:
+            continue
+        same_number = stored == entered or stored.endswith(entered) or entered.endswith(stored)
+        if same_number and stored[-5:] == code:
+            matches.append(person)
+    if not matches:
+        return None
+    active = [person for person in matches if person.status == "active"]
+    return (active or matches)[-1]
+
+
+def _find_investor_login(pass_one, pass_two):
+    """Match investor Pass 1 + Pass 2 exactly."""
+    if not pass_one or not pass_two:
+        return None
+    for investor in Investor.query.filter(
+        Investor.pass_one.isnot(None), Investor.pass_two.isnot(None)
+    ).all():
+        if _same_secret(pass_one, investor.pass_one) and _same_secret(pass_two, investor.pass_two):
+            return investor
+    return None
+
+
+def _investor_pass_taken(pass_one, pass_two, exclude_id=None):
+    """True if another investor already uses this pair."""
+    q = Investor.query.filter(
+        Investor.pass_one == pass_one,
+        Investor.pass_two == pass_two,
+    )
+    if exclude_id is not None:
+        q = q.filter(Investor.id != exclude_id)
+    return q.first() is not None
+
+
+def _safe_next(target):
+    if target and target.startswith("/") and not target.startswith("//"):
+        return target
+    return None
+
+
+@app.before_request
+def require_login():
+    endpoint = request.endpoint
+    if endpoint in (None, "static", "login"):
+        return None
+    role = session.get("role")
+    if role == "admin":
+        return None
+    if role == "borrower":
+        if endpoint in ("logout", "borrower_home"):
+            return None
+        return redirect(url_for("borrower_home"))
+    if role == "investor":
+        if endpoint in ("logout", "investor_home"):
+            return None
+        return redirect(url_for("investor_home"))
+    nxt = request.path if request.method == "GET" else None
+    return redirect(url_for("login", next=nxt))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if session.get("role") == "admin":
+        return redirect(_safe_next(request.args.get("next")) or url_for("dashboard"))
+    if session.get("role") == "borrower":
+        return redirect(url_for("borrower_home"))
+    if session.get("role") == "investor":
+        return redirect(url_for("investor_home"))
+
+    if request.method == "POST":
+        pass_one = request.form.get("pass_one", "").strip()
+        pass_two = request.form.get("pass_two", "").strip()
+        if _same_secret(pass_one, Config.ADMIN_PASS_1) and _same_secret(pass_two, Config.ADMIN_PASS_2):
+            session.clear()
+            session["role"] = "admin"
+            return redirect(_safe_next(request.args.get("next")) or url_for("dashboard"))
+        investor = _find_investor_login(pass_one, pass_two)
+        if investor:
+            session.clear()
+            session["role"] = "investor"
+            session["investor_id"] = investor.id
+            session["investor_name"] = investor.name
+            return redirect(url_for("investor_home"))
+        person = _find_borrower_login(pass_one, pass_two)
+        if person:
+            session.clear()
+            session["role"] = "borrower"
+            session["borrower_id"] = person.id
+            session["borrower_name"] = person.name
+            return redirect(url_for("borrower_home"))
+        flash("Those two numbers are not correct.", "danger")
+
+    return render_template("login.html")
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+def _week_label(status):
+    return {
+        "paid": "Paid",
+        "waived": "Maaf",
+        "overdue": "Overdue",
+        "due_today": "Due today",
+        "partially_paid": "Part paid",
+        "upcoming": "Upcoming",
+    }.get(status, "Not paid")
+
+
+def _borrower_card(loan):
+    """Capital, amount still to pay, and each week's due date."""
+    refresh_collection_statuses(loan.id)
+    bal = loan_balances(loan)
+    weeks = (
+        ScheduledCollection.query.filter_by(loan_id=loan.id)
+        .order_by(ScheduledCollection.due_date.asc())
+        .all()
+    )
+    remaining = Decimal("0.00")
+    rows = []
+    for sc in weeks:
+        if sc.status != "waived":
+            remaining += sc.remaining
+        rows.append(
+            {
+                "date": sc.due_date,
+                "amount": Decimal(sc.amount_due or 0),
+                "left": sc.remaining,
+                "status": _week_label(sc.status),
+                "key": sc.status or "upcoming",
+            }
+        )
+    if loan.capital_paid:
+        to_pay = remaining
+    else:
+        to_pay = remaining + Decimal(bal["remaining_principal"] or 0)
+    return {
+        "capital": Decimal(loan.principal_amount or 0),
+        "capital_paid": bool(loan.capital_paid),
+        "to_pay": to_pay,
+        "weeks": rows,
+    }
+
+
+@app.route("/me")
+def borrower_home():
+    borrower = Borrower.query.get_or_404(session.get("borrower_id"))
+    loans = (
+        Loan.query.filter_by(borrower_id=borrower.id)
+        .order_by(Loan.id.desc())
+        .all()
+    )
+    cards = [_borrower_card(loan) for loan in loans]
+    return render_template("borrower_home.html", borrower=borrower, cards=cards)
+
+
+@app.route("/investor")
+def investor_home():
+    """Investor portal: who, invested, share, to get, paid — nothing else."""
+    investor = Investor.query.get_or_404(session.get("investor_id"))
+    summary = _investor_summary(investor)
+    return render_template(
+        "investor_home.html",
+        investor=investor,
+        summary=summary,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +248,16 @@ def money(value, default="0"):
         return Decimal(default)
     try:
         return Decimal(str(value).replace(",", "").strip()).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        return Decimal(default)
+
+
+def whole_money(value, default="0"):
+    """Investor amounts are whole rupees."""
+    if value is None or str(value).strip() == "":
+        return Decimal(default)
+    try:
+        return Decimal(str(value).replace(",", "").strip()).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     except (InvalidOperation, ValueError):
         return Decimal(default)
 
@@ -300,6 +510,24 @@ def money_filter(value):
         return "0.00"
 
 
+@app.template_filter("rupees")
+def rupees_filter(value):
+    try:
+        n = Decimal(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        return f"{int(n):,}"
+    except Exception:
+        return "0"
+
+
+@app.template_filter("rupee_input")
+def rupee_input_filter(value):
+    try:
+        n = Decimal(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        return str(int(n))
+    except Exception:
+        return "0"
+
+
 @app.template_filter("whatsapp_url")
 def whatsapp_url_filter(phone, message="Hey? When are you paying?"):
     """Build a wa.me chat link from a phone number, or '' if unusable."""
@@ -394,6 +622,41 @@ def dashboard():
 
     due_today = _home_due_groups(["due_today", "partially_paid"], due_on=today)
     overdue = _home_due_groups(["overdue", "partially_paid"], due_before=today)
+    active_users = []
+    active_loans = (
+        Loan.query.join(Borrower)
+        .filter(Loan.status == "active", Borrower.status == "active")
+        .order_by(Borrower.name.asc())
+        .all()
+    )
+    interest_all = Decimal("0")
+    interest_investors = Decimal("0")
+    capital_all = Decimal("0")
+    capital_investors = Decimal("0")
+    for loan in active_loans:
+        principal = whole_money(loan.principal_amount)
+        weekly = whole_money(loan.interest_amount)
+        stakes = LoanInvestor.query.filter_by(loan_id=loan.id).all()
+        marked = sum((whole_money(s.amount) for s in stakes), Decimal("0"))
+        if marked > principal:
+            marked = principal
+        cuts = sum((whole_money(s.weekly_cut) for s in stakes), Decimal("0"))
+        if cuts > weekly:
+            cuts = weekly
+        interest_all += weekly
+        interest_investors += cuts
+        capital_all += principal
+        capital_investors += marked
+        active_users.append(
+            {
+                "loan_id": loan.id,
+                "name": loan.borrower.name,
+                "phone": loan.borrower.phone or "",
+                "amount": Decimal(loan.principal_amount or 0),
+            }
+        )
+    interest_ours = max(interest_all - interest_investors, Decimal("0"))
+    capital_ours = max(capital_all - capital_investors, Decimal("0"))
     total_overdue = sum((r["amount"] for r in overdue), Decimal("0.00"))
     total_today = sum((r["amount"] for r in due_today), Decimal("0.00"))
 
@@ -411,11 +674,22 @@ def dashboard():
         "week_end": week_end,
         "collected_pct": collected_pct,
     }
+    active_overview = {
+        "count": len(active_loans),
+        "interest_all": interest_all,
+        "interest_investors": interest_investors,
+        "interest_ours": interest_ours,
+        "capital_all": capital_all,
+        "capital_investors": capital_investors,
+        "capital_ours": capital_ours,
+    }
     return render_template(
         "dashboard.html",
         stats=stats,
         due_today=due_today,
         overdue=overdue,
+        active_users=active_users,
+        active_overview=active_overview,
     )
 
 
@@ -1040,6 +1314,7 @@ def loans_list():
                 "loan": loan,
                 "paid": bal["total_payments"],
                 "outstanding": bal["total_outstanding"],
+                "interest_to_pay": bal["outstanding_interest"],
                 "next_due": bal["next_due_date"],
                 "next_amt": bal["next_due_amount"],
             }
@@ -1627,6 +1902,15 @@ def loans_view(loan_id):
         .all()
     )
 
+    stakes = (
+        LoanInvestor.query.filter_by(loan_id=loan.id)
+        .order_by(LoanInvestor.id.asc())
+        .all()
+    )
+    investor_invested = sum((Decimal(s.amount or 0) for s in stakes), Decimal("0.00"))
+    investor_weekly_cut = sum((whole_money(s.weekly_cut) for s in stakes), Decimal("0"))
+    investor_choices = Investor.query.order_by(Investor.name.asc()).all()
+
     return render_template(
         "loans/view.html",
         loan=loan,
@@ -1636,6 +1920,14 @@ def loans_view(loan_id):
         summary=summary,
         payments=payments,
         topups=topups,
+        stakes=stakes,
+        investor_invested=investor_invested,
+        investor_room=max(principal - investor_invested, Decimal("0.00")),
+        investor_weekly_cut=investor_weekly_cut,
+        investor_our_weekly_cut=max(
+            whole_money(loan.interest_amount) - investor_weekly_cut, Decimal("0")
+        ),
+        investor_choices=investor_choices,
     )
 
 
@@ -2040,6 +2332,16 @@ def loans_add_week(loan_id):
     if "principal_amount" in request.form and not loan.capital_paid:
         new_principal = money(request.form.get("principal_amount"), str(loan.principal_amount or 0))
         old_principal = Decimal(loan.principal_amount or 0)
+        marked = sum(
+            (whole_money(s.amount) for s in LoanInvestor.query.filter_by(loan_id=loan.id).all()),
+            Decimal("0"),
+        )
+        if new_principal > 0 and new_principal != old_principal and new_principal < marked:
+            flash(
+                f"Capital cannot go below the {int(marked)} already marked as investor money.",
+                "danger",
+            )
+            new_principal = old_principal
         if new_principal > 0 and new_principal != old_principal:
             diff = new_principal - old_principal
             loan.principal_amount = new_principal
@@ -2959,6 +3261,275 @@ def payments_reverse(payment_id):
         return redirect(url_for("payments_view", payment_id=original.id))
 
 
+def _collected_fraction(sc):
+    """Share of a week already collected. Paid weeks count in full."""
+    if sc.status == "waived":
+        return Decimal("0")
+    due = Decimal(sc.amount_due or 0)
+    paid = Decimal(sc.amount_paid or 0)
+    if due <= 0 or paid <= 0:
+        return Decimal("0")
+    if paid >= due:
+        return Decimal("1")
+    return (paid / due)
+
+
+def _investor_profit(stake):
+    """Profit owed for weeks where interest has been collected."""
+    cut = Decimal(stake.weekly_cut or 0)
+    if cut <= 0:
+        return Decimal("0.00")
+    total = Decimal("0")
+    weeks = ScheduledCollection.query.filter_by(loan_id=stake.loan_id).all()
+    for sc in weeks:
+        total += cut * _collected_fraction(sc)
+    return total.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+
+
+def _investor_week_rows(stake):
+    """One row per loan week: cut is Paid only when the borrower week is paid."""
+    cut = whole_money(stake.weekly_cut)
+    weeks = (
+        ScheduledCollection.query.filter_by(loan_id=stake.loan_id)
+        .order_by(ScheduledCollection.due_date.asc(), ScheduledCollection.id.asc())
+        .all()
+    )
+    rows = []
+    for sc in weeks:
+        if sc.status == "waived":
+            continue
+        ui = _week_ui_status(sc)
+        rows.append(
+            {
+                "date": sc.due_date,
+                "cut": cut,
+                "paid": ui == "paid",
+                "label": "Paid" if ui == "paid" else "Not paid",
+            }
+        )
+    return rows
+
+
+def _investor_summary(investor):
+    stakes = investor.stakes.order_by(LoanInvestor.id.asc()).all()
+    invested = Decimal("0.00")
+    to_pay = Decimal("0.00")
+    lines = []
+    for stake in stakes:
+        profit = _investor_profit(stake)
+        invested += Decimal(stake.amount or 0)
+        to_pay += profit
+        borrower = stake.loan.borrower.name if stake.loan and stake.loan.borrower else f"Loan {stake.loan_id}"
+        loan_cuts = sum(
+            (whole_money(s.weekly_cut) for s in stake.loan.investments.all()),
+            Decimal("0"),
+        ) if stake.loan else whole_money(stake.weekly_cut)
+        lines.append(
+            {
+                "stake_id": stake.id,
+                "borrower": borrower,
+                "loan_id": stake.loan_id,
+                "amount": Decimal(stake.amount or 0),
+                "weekly_cut": Decimal(stake.weekly_cut or 0),
+                "our_weekly_cut": max(
+                    whole_money(stake.loan.interest_amount) - loan_cuts, Decimal("0")
+                ) if stake.loan else Decimal("0"),
+                "to_pay": profit,
+                "weeks": _investor_week_rows(stake),
+            }
+        )
+    return {"invested": invested, "to_pay": to_pay, "lines": lines}
+
+
+@app.route("/investors", methods=["GET", "POST"])
+def investors_list():
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        pass_one = request.form.get("pass_one", "").strip()
+        pass_two = request.form.get("pass_two", "").strip()
+        if not name:
+            flash("Investor name is required.", "danger")
+            return redirect(url_for("investors_list"))
+        if not pass_one or not pass_two:
+            flash("Pass 1 and Pass 2 are required for investor login.", "danger")
+            return redirect(url_for("investors_list"))
+        if _same_secret(pass_one, Config.ADMIN_PASS_1) and _same_secret(pass_two, Config.ADMIN_PASS_2):
+            flash("Those passes are used by the office login. Pick different ones.", "danger")
+            return redirect(url_for("investors_list"))
+        if _investor_pass_taken(pass_one, pass_two):
+            flash("Another investor already uses those two passes.", "danger")
+            return redirect(url_for("investors_list"))
+        exists = Investor.query.filter(db.func.lower(Investor.name) == name.lower()).first()
+        if exists:
+            flash(f"{exists.name} is already an investor.", "warning")
+            return redirect(url_for("investors_list"))
+        db.session.add(
+            Investor(
+                name=name,
+                notes=request.form.get("notes", "").strip() or None,
+                pass_one=pass_one,
+                pass_two=pass_two,
+            )
+        )
+        db.session.commit()
+        flash(f"Added investor {name}. They can sign in with Pass 1 / Pass 2.", "success")
+        return redirect(url_for("investors_list"))
+
+    investors = Investor.query.order_by(Investor.name.asc()).all()
+    cards = [{"investor": inv, **_investor_summary(inv)} for inv in investors]
+    investor_total = Decimal("0")
+    ours = Decimal("0")
+    for loan in Loan.query.filter(Loan.status != "closed").all():
+        principal = whole_money(loan.principal_amount)
+        marked = sum(
+            (whole_money(s.amount) for s in LoanInvestor.query.filter_by(loan_id=loan.id).all()),
+            Decimal("0"),
+        )
+        if marked > principal:
+            marked = principal
+        investor_total += marked
+        ours += principal - marked
+    return render_template(
+        "investors/list.html",
+        cards=cards,
+        office={"ours": ours, "investor": investor_total},
+    )
+
+
+@app.route("/investors/<int:investor_id>/passes", methods=["POST"])
+def investors_update_passes(investor_id):
+    investor = Investor.query.get_or_404(investor_id)
+    pass_one = request.form.get("pass_one", "").strip()
+    pass_two = request.form.get("pass_two", "").strip()
+    if not pass_one or not pass_two:
+        flash("Pass 1 and Pass 2 are required.", "danger")
+        return redirect(url_for("investors_list"))
+    if _same_secret(pass_one, Config.ADMIN_PASS_1) and _same_secret(pass_two, Config.ADMIN_PASS_2):
+        flash("Those passes are used by the office login. Pick different ones.", "danger")
+        return redirect(url_for("investors_list"))
+    if _investor_pass_taken(pass_one, pass_two, exclude_id=investor.id):
+        flash("Another investor already uses those two passes.", "danger")
+        return redirect(url_for("investors_list"))
+    investor.pass_one = pass_one
+    investor.pass_two = pass_two
+    db.session.commit()
+    flash(f"Login passes updated for {investor.name}.", "success")
+    return redirect(url_for("investors_list"))
+
+
+@app.route("/investors/<int:investor_id>/delete", methods=["POST"])
+def investors_delete(investor_id):
+    investor = Investor.query.get_or_404(investor_id)
+    if investor.stakes.count():
+        flash("Remove this investor's money from the loans first.", "warning")
+        return redirect(url_for("investors_list"))
+    db.session.delete(investor)
+    db.session.commit()
+    flash("Investor removed.", "success")
+    return redirect(url_for("investors_list"))
+
+
+@app.route("/loans/<int:loan_id>/investors", methods=["POST"])
+def loans_add_investor(loan_id):
+    loan = Loan.query.get_or_404(loan_id)
+    if loan.status == "closed":
+        flash("This loan is closed.", "warning")
+        return redirect(url_for("loans_view", loan_id=loan.id))
+    investor = Investor.query.get(request.form.get("investor_id", type=int))
+    amount = whole_money(request.form.get("amount"))
+    if not investor or amount <= 0:
+        flash("Choose an investor and an amount greater than 0.", "danger")
+        return redirect(url_for("loans_view", loan_id=loan.id))
+
+    stakes = LoanInvestor.query.filter_by(loan_id=loan.id).all()
+    already = sum((whole_money(s.amount) for s in stakes), Decimal("0"))
+    same = next((s for s in stakes if s.investor_id == investor.id), None)
+    if already + amount > whole_money(loan.principal_amount):
+        room = whole_money(loan.principal_amount) - already
+        flash(f"Only {int(room)} of the capital is still ours.", "danger")
+        return redirect(url_for("loans_view", loan_id=loan.id))
+    if same:
+        same.amount = whole_money(same.amount) + amount
+    else:
+        db.session.add(
+            LoanInvestor(
+                loan_id=loan.id,
+                investor_id=investor.id,
+                amount=amount,
+                weekly_cut=Decimal("0"),
+            )
+        )
+    db.session.commit()
+    flash(f"{int(amount)} marked as {investor.name}'s money.", "success")
+    return redirect(url_for("loans_view", loan_id=loan.id))
+
+
+@app.route("/loans/<int:loan_id>/investors/<int:stake_id>/amount", methods=["POST"])
+def loans_investor_amount(loan_id, stake_id):
+    loan = Loan.query.get_or_404(loan_id)
+    if loan.status == "closed":
+        flash("This loan is closed.", "warning")
+        return redirect(url_for("loans_view", loan_id=loan.id))
+    stake = LoanInvestor.query.filter_by(id=stake_id, loan_id=loan.id).first_or_404()
+    amount = whole_money(request.form.get("amount"))
+    if amount <= 0:
+        flash("Investor amount has to be more than 0.", "danger")
+        return redirect(url_for("loans_view", loan_id=loan.id))
+    others = (
+        LoanInvestor.query.filter(
+            LoanInvestor.loan_id == loan.id,
+            LoanInvestor.id != stake.id,
+        ).all()
+    )
+    other_amounts = sum((whole_money(s.amount) for s in others), Decimal("0"))
+    if other_amounts + amount > whole_money(loan.principal_amount):
+        room = whole_money(loan.principal_amount) - other_amounts
+        flash(f"This capital can hold {int(room)} for this investor.", "danger")
+        return redirect(url_for("loans_view", loan_id=loan.id))
+    stake.amount = amount
+    db.session.commit()
+    flash(f"{stake.investor.name}'s money is now {int(amount)}.", "success")
+    return redirect(url_for("loans_view", loan_id=loan.id))
+
+
+@app.route("/loans/<int:loan_id>/investors/<int:stake_id>/cut", methods=["POST"])
+def loans_investor_cut(loan_id, stake_id):
+    loan = Loan.query.get_or_404(loan_id)
+    stake = LoanInvestor.query.filter_by(id=stake_id, loan_id=loan.id).first_or_404()
+    cut = whole_money(request.form.get("weekly_cut"))
+    if cut < 0:
+        cut = Decimal("0")
+    others = (
+        LoanInvestor.query.filter(
+            LoanInvestor.loan_id == loan.id,
+            LoanInvestor.id != stake.id,
+        ).all()
+    )
+    other_cuts = sum((whole_money(s.weekly_cut) for s in others), Decimal("0"))
+    week_interest = whole_money(loan.interest_amount)
+    if week_interest > 0 and other_cuts + cut > week_interest:
+        flash(
+            f"Investor profit cannot be more than the {int(week_interest)} weekly interest.",
+            "danger",
+        )
+        return redirect(url_for("loans_view", loan_id=loan.id))
+    stake.weekly_cut = cut
+    db.session.commit()
+    flash(f"{stake.investor.name}'s cut is {int(cut)} every week.", "success")
+    return redirect(url_for("loans_view", loan_id=loan.id))
+
+
+@app.route("/loans/<int:loan_id>/investors/<int:stake_id>/delete", methods=["POST"])
+def loans_investor_delete(loan_id, stake_id):
+    loan = Loan.query.get_or_404(loan_id)
+    stake = LoanInvestor.query.filter_by(id=stake_id, loan_id=loan.id).first_or_404()
+    name = stake.investor.name
+    db.session.delete(stake)
+    db.session.commit()
+    flash(f"Removed {name}'s money from this capital.", "success")
+    return redirect(url_for("loans_view", loan_id=loan.id))
+
+
 # ---------------------------------------------------------------------------
 # CLI / startup
 # ---------------------------------------------------------------------------
@@ -2980,6 +3551,27 @@ def ensure_schema():
             if not rows2:
                 conn.exec_driver_sql(
                     "ALTER TABLE loans ADD COLUMN capital_paid_date DATE NULL"
+                )
+            inv_p1 = conn.exec_driver_sql(
+                "SHOW COLUMNS FROM investors LIKE 'pass_one'"
+            ).fetchall()
+            if not inv_p1:
+                conn.exec_driver_sql(
+                    "ALTER TABLE investors ADD COLUMN pass_one VARCHAR(64) NULL"
+                )
+            inv_p2 = conn.exec_driver_sql(
+                "SHOW COLUMNS FROM investors LIKE 'pass_two'"
+            ).fetchall()
+            if not inv_p2:
+                conn.exec_driver_sql(
+                    "ALTER TABLE investors ADD COLUMN pass_two VARCHAR(64) NULL"
+                )
+            paid_col = conn.exec_driver_sql(
+                "SHOW COLUMNS FROM loan_investors LIKE 'paid_out'"
+            ).fetchall()
+            if not paid_col:
+                conn.exec_driver_sql(
+                    "ALTER TABLE loan_investors ADD COLUMN paid_out DECIMAL(14,2) NOT NULL DEFAULT 0"
                 )
     except Exception:
         # SQLite / first boot / no loans table yet — create_all handles it

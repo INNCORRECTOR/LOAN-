@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ investor.name }} — SYNERGY capital & Finance{% endblock %}
+{% block content %}
+<div class="borrower-only">
+  <p class="eyebrow">Investor</p>
+  <h1 class="page-title">{{ investor.name }}</h1>
+
+  <div class="borrower-figures">
+    <div class="borrower-figure">
+      <span class="label">Invested</span>
+      <span class="value money">{{ summary.invested|rupees }}</span>
+    </div>
+    <div class="borrower-figure">
+      <span class="label">To get</span>
+      <span class="value money">{{ summary.to_pay|rupees }}</span>
+    </div>
+  </div>
+
+  {% if summary.lines %}
+  <ul class="borrower-weeks investor-portal-lines">
+    {% for line in summary.lines %}
+    <li class="borrower-week">
+      <span class="when">{{ line.borrower }}</span>
+      <span class="state">
+        Invested {{ line.amount|rupees }}
+        · Share {{ line.weekly_cut|rupees }}/week
+        · To get {{ line.to_pay|rupees }}
+      </span>
+      {% if line.weeks %}
+      <ul class="investor-cut-weeks">
+        {% for week in line.weeks %}
+        <li class="investor-cut-week {% if week.paid %}is-paid{% else %}is-not-paid{% endif %}">
+          <span class="when">{{ week.date }}</span>
+          <span class="amt money">{{ week.cut|rupees }}</span>
+          <span class="state">{{ week.label }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="home-empty">No money marked on a loan yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

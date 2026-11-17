@@ -102,6 +102,7 @@ window.LoanWeeks = (function () {
         removeBtn.addEventListener("click", function () {
           row.remove();
           renumber();
+          if (window.showToast) window.showToast("Week removed. Press Save to keep the change.", "warning");
         });
       }
       recalcRow(row);
@@ -181,6 +182,7 @@ window.LoanWeeks = (function () {
       wireRow(card);
       renumber();
       card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      if (window.showToast) window.showToast("Week added. Press Save to keep it.", "success");
     }
 
     // wire existing cards (edit page)

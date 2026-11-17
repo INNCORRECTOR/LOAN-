@@ -3,7 +3,7 @@ from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
 
 class Config:
@@ -15,6 +15,10 @@ class Config:
     MYSQL_USER = os.getenv("MYSQL_USER", "root")
     MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
     MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "loan_counter")
+
+    # Two numbers asked on the admin login screen.
+    ADMIN_PASS_1 = os.getenv("ADMIN_PASS_1", "")
+    ADMIN_PASS_2 = os.getenv("ADMIN_PASS_2", "")
 
     _user = quote_plus(MYSQL_USER)
     _password = quote_plus(MYSQL_PASSWORD)

@@ -27,6 +27,75 @@
 
 <section class="home-section">
   <div class="home-section-head">
+    <h2>Active borrowers</h2>
+    <span class="home-count">{{ active_overview.count }}</span>
+  </div>
+  <div class="home-strip cols-4 overview-strip">
+    <div class="home-strip-item">
+      <span class="label">Active</span>
+      <span class="value">{{ active_overview.count }}</span>
+    </div>
+    <div class="home-strip-item">
+      <span class="label">Interest / week · all</span>
+      <span class="value money">{{ active_overview.interest_all|rupees }}</span>
+    </div>
+    <div class="home-strip-item">
+      <span class="label">Interest · investors</span>
+      <span class="value money">{{ active_overview.interest_investors|rupees }}</span>
+    </div>
+    <div class="home-strip-item">
+      <span class="label">Interest · ours</span>
+      <span class="value money">{{ active_overview.interest_ours|rupees }}</span>
+    </div>
+  </div>
+  <div class="home-strip cols-3 overview-strip">
+    <div class="home-strip-item">
+      <span class="label">Capital · all</span>
+      <span class="value money">{{ active_overview.capital_all|rupees }}</span>
+    </div>
+    <div class="home-strip-item">
+      <span class="label">Capital · investors</span>
+      <span class="value money">{{ active_overview.capital_investors|rupees }}</span>
+    </div>
+    <div class="home-strip-item">
+      <span class="label">Capital · ours</span>
+      <span class="value money">{{ active_overview.capital_ours|rupees }}</span>
+    </div>
+  </div>
+</section>
+
+<section class="home-section">
+  <div class="home-section-head">
+    <h2>Active</h2>
+    <span class="home-count">{{ active_users|length }}</span>
+  </div>
+  {% if active_users %}
+  <div class="collect-list">
+    {% for row in active_users %}
+    {% set wa = row.phone|whatsapp_url %}
+    <div class="collect-row">
+      <a class="collect-main" href="{{ url_for('loans_view', loan_id=row.loan_id) }}">
+        <div class="collect-who">
+          <div class="collect-name">{{ row.name }}</div>
+          <div class="collect-meta">{% if row.phone %}{{ row.phone }}{% else %}Tap to open{% endif %}</div>
+        </div>
+        <div class="collect-amt money">{{ row.amount|money }}</div>
+      </a>
+      {% if wa %}
+      <a class="wa-btn" href="{{ wa }}" target="_blank" rel="noopener" title="WhatsApp {{ row.phone }}">
+        <img src="{{ url_for('static', filename='logo/WhatsApp.svg.webp') }}" alt="WhatsApp">
+      </a>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="home-empty">No active people.</div>
+  {% endif %}
+</section>
+
+<section class="home-section">
+  <div class="home-section-head">
     <h2>Due today</h2>
     <span class="home-count">{{ due_today|length }}</span>
   </div>
@@ -90,6 +159,7 @@
 
 <div class="home-links">
   <a href="{{ url_for('loans_list') }}">All people</a>
+  <a href="{{ url_for('investors_list') }}">Investors</a>
   <a href="{{ url_for('balance_page') }}">Cash balance</a>
   <a href="{{ url_for('collections_report') }}">Week stats</a>
 </div>

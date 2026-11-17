@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ borrower.name }} — SYNERGY capital & Finance{% endblock %}
+{% block content %}
+<div class="borrower-only">
+  <p class="eyebrow">{{ borrower.name }}</p>
+  {% if cards %}
+    {% for card in cards %}
+    <div class="borrower-figures">
+      <div class="borrower-figure">
+        <span class="label">Capital</span>
+        {% if card.capital_paid %}
+        <span class="value is-ok">Paid</span>
+        {% else %}
+        <span class="value money">{{ card.capital|money }}</span>
+        {% endif %}
+      </div>
+      <div class="borrower-figure">
+        <span class="label">To pay</span>
+        <span class="value money">{{ card.to_pay|money }}</span>
+      </div>
+    </div>
+    {% if card.weeks %}
+    <ul class="borrower-weeks">
+      {% for week in card.weeks %}
+      <li class="borrower-week is-{{ week.key }}">
+        <span class="when">{{ week.date }}</span>
+        <span class="state">{{ week.status }}</span>
+        <span class="amt money">{% if week.key == 'partially_paid' %}{{ week.left|money }} left{% else %}{{ week.amount|money }}{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% endfor %}
+  {% else %}
+  <div class="home-empty">No loan on this number.</div>
+  {% endif %}
+</div>
+{% endblock %}

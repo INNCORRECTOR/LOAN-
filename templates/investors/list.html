@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Investors — SYNERGY capital & Finance{% endblock %}
+{% block content %}
+<div class="hello">
+  <p class="eyebrow">Investors</p>
+  <h1>Their money</h1>
+</div>
+
+<div class="borrower-figures">
+  <div class="borrower-figure">
+    <span class="label">Ours</span>
+    <span class="value money">{{ office.ours|rupees }}</span>
+  </div>
+  <div class="borrower-figure">
+    <span class="label">Investor money</span>
+    <span class="value money">{{ office.investor|rupees }}</span>
+  </div>
+</div>
+<p class="section-help">Investor money is the part marked on a loan. The rest of the capital is ours. Each investor signs in with Pass 1 and Pass 2. Cut shows Paid only when that borrower week is paid.</p>
+
+<form class="card-panel investor-add" method="post">
+  <label class="form-label" for="investor-name">Name</label>
+  <input id="investor-name" class="form-control" name="name" required placeholder="Investor name" maxlength="150">
+  <div class="form-row cols-2" style="margin-top:0.75rem">
+    <div>
+      <label class="form-label" for="investor-pass-1">Pass 1</label>
+      <input id="investor-pass-1" class="form-control" name="pass_one" inputmode="numeric" autocomplete="off" required placeholder="Login pass 1">
+    </div>
+    <div>
+      <label class="form-label" for="investor-pass-2">Pass 2</label>
+      <input id="investor-pass-2" class="form-control" name="pass_two" inputmode="numeric" autocomplete="off" required placeholder="Login pass 2">
+    </div>
+  </div>
+  <div class="action-row">
+    <button class="btn btn-primary" type="submit">Add investor</button>
+  </div>
+</form>
+
+{% if cards %}
+<div class="investor-list">
+  {% for card in cards %}
+  <section class="card-panel investor-card">
+    <div class="investor-stake-top">
+      <h2 class="section-title">{{ card.investor.name }}</h2>
+      {% if not card.lines %}
+      <form method="post" action="{{ url_for('investors_delete', investor_id=card.investor.id) }}">
+        <button class="btn btn-sm btn-outline-danger" type="submit" data-confirm="Remove this investor?">Remove</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <form class="investor-pass-edit" method="post" action="{{ url_for('investors_update_passes', investor_id=card.investor.id) }}">
+      <div class="form-row cols-2">
+        <div>
+          <label class="form-label">Pass 1</label>
+          <input class="form-control form-control-sm" name="pass_one" value="{{ card.investor.pass_one or '' }}" inputmode="numeric" autocomplete="off" required>
+        </div>
+        <div>
+          <label class="form-label">Pass 2</label>
+          <input class="form-control form-control-sm" name="pass_two" value="{{ card.investor.pass_two or '' }}" inputmode="numeric" autocomplete="off" required>
+        </div>
+      </div>
+      <div class="action-row">
+        <button class="btn btn-sm btn-outline-secondary" type="submit">Save passes</button>
+      </div>
+    </form>
+
+    <div class="borrower-figures">
+      <div class="borrower-figure">
+        <span class="label">Invested</span>
+        <span class="value money">{{ card.invested|rupees }}</span>
+      </div>
+      <div class="borrower-figure">
+        <span class="label">To get</span>
+        <span class="value money">{{ card.to_pay|rupees }}</span>
+      </div>
+    </div>
+    {% if card.lines %}
+    <ul class="borrower-weeks">
+      {% for line in card.lines %}
+      <li class="borrower-week investor-admin-line">
+        <a class="when" href="{{ url_for('loans_view', loan_id=line.loan_id) }}">{{ line.borrower }}</a>
+        <span class="state">
+          Invested {{ line.amount|rupees }}
+          · Share {{ line.weekly_cut|rupees }}/week
+          · To get {{ line.to_pay|rupees }}
+        </span>
+        {% if line.weeks %}
+        <ul class="investor-cut-weeks">
+          {% for week in line.weeks %}
+          <li class="investor-cut-week {% if week.paid %}is-paid{% else %}is-not-paid{% endif %}">
+            <span class="when">{{ week.date }}</span>
+            <span class="amt money">{{ week.cut|rupees }}</span>
+            <span class="state">{{ week.label }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="section-help">No capital marked yet. Open a person and add this investor on the capital.</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+</div>
+{% else %}
+<div class="home-empty">No investors yet.</div>
+{% endif %}
+{% endblock %}

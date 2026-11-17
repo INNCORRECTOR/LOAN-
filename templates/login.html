@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Sign in — SYNERGY capital & Finance{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <p class="eyebrow">Sign in</p>
+  <h1 class="page-title">Two numbers</h1>
+
+  <form class="card-panel login-panel is-open" method="post" autocomplete="off">
+    <label class="form-label" for="pass-1">Pass 1</label>
+    <input id="pass-1" class="form-control" name="pass_one" inputmode="numeric" autocomplete="off" required>
+    <label class="form-label" for="pass-2">Pass 2</label>
+    <input id="pass-2" class="form-control" name="pass_two" inputmode="numeric" autocomplete="off" required>
+    <button class="btn btn-primary" type="submit">Enter</button>
+  </form>
+</div>
+{% endblock %}
